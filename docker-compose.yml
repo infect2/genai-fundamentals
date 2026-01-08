@@ -1,0 +1,55 @@
+# =============================================================================
+# GraphRAG API Server - Docker Compose
+# =============================================================================
+# 사용법:
+#   개발 환경: docker-compose up
+#   프로덕션:  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   빌드:     docker-compose build
+#   중지:     docker-compose down
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # GraphRAG API Server
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: graphrag-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Neo4j 연결 정보 (환경 변수 또는 .env 파일에서 로드)
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      # OpenAI API 키
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # 리소스 제한 (선택사항)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+# =============================================================================
+# 네트워크 설정
+# =============================================================================
+networks:
+  default:
+    name: graphrag-network

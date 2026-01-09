@@ -58,10 +58,13 @@ streamlit run genai-fundamentals/streamlit_client.py
 
 ### Chainlit Client
 ```bash
-# Start the Chainlit chat client
+# Start the Chainlit chat client (default port: 8000)
 chainlit run genai-fundamentals/chainlit_client.py
 
-# Access at http://localhost:8000
+# Or specify a different port
+chainlit run genai-fundamentals/chainlit_client.py --port 8502
+
+# Access at http://localhost:8000 (or specified port)
 ```
 
 ### Client Comparison

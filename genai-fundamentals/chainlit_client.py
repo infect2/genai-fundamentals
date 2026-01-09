@@ -110,9 +110,9 @@ async def show_settings(action: cl.Action):
                 f"- 컨텍스트 리셋: {'✅ 활성화' if reset_context else '❌ 비활성화'}\n"
                 f"- 스트리밍 모드: {'✅ 활성화' if use_streaming else '❌ 비활성화'}",
         actions=[
-            cl.Action(name="toggle_reset_context", payload={}, label="🔄 컨텍스트 리셋 토글"),
-            cl.Action(name="toggle_streaming", payload={}, label="📡 스트리밍 토글"),
-            cl.Action(name="reset_session", payload={}, label="🗑️ 세션 초기화"),
+            cl.Action(name="toggle_reset_context", value="toggle_reset", label="🔄 컨텍스트 리셋 토글"),
+            cl.Action(name="toggle_streaming", value="toggle_stream", label="📡 스트리밍 토글"),
+            cl.Action(name="reset_session", value="reset", label="🗑️ 세션 초기화"),
         ]
     ).send()
 
@@ -285,7 +285,7 @@ async def on_message(message: cl.Message):
                 content="🔍 **상세 정보**",
                 elements=elements,
                 actions=[
-                    cl.Action(name="show_settings", payload={}, label="⚙️ 설정"),
+                    cl.Action(name="show_settings", value="settings", label="⚙️ 설정"),
                 ]
             ).send()
 

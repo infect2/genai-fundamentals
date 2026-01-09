@@ -48,6 +48,20 @@ curl -X POST "http://localhost:8000/query" \
   -d '{"query": "Which actors appeared in The Matrix?"}'
 ```
 
+### Streamlit Client
+```bash
+# Start the Streamlit chat client
+streamlit run genai-fundamentals/streamlit_client.py
+
+# Access at http://localhost:8501
+```
+
+**Features:**
+- Chat interface with conversation history
+- Streaming mode toggle (real-time token display)
+- Context reset toggle
+- API connection status indicator
+
 ### Docker
 
 ```bash
@@ -96,6 +110,7 @@ docker run -p 8000:8000 \
 genai-fundamentals/
 ├── api_server.py           # FastAPI REST API server (endpoints only)
 ├── graph_rag_service.py    # GraphRAG business logic (LangChain-based)
+├── streamlit_client.py     # Streamlit chat client (connects to API)
 ├── vector_retriever.py     # Basic vector similarity search exercise
 ├── vector_rag.py           # Vector RAG pipeline exercise
 ├── vector_cypher_rag.py    # Vector + Cypher RAG exercise
@@ -186,6 +201,7 @@ Key packages in `requirements.txt`:
 - `neo4j-graphrag[openai]` - Neo4j GraphRAG library
 - `langchain`, `langchain-openai`, `langchain-neo4j` - LangChain framework
 - `fastapi`, `uvicorn` - REST API server
+- `streamlit` - Chat client UI
 - `python-dotenv` - Environment variable management
 
 ## Test Framework

@@ -8,6 +8,7 @@
 # =============================================================================
 
 import chainlit as cl
+from chainlit.input_widget import Switch
 import requests
 import json
 import uuid
@@ -34,6 +35,24 @@ async def on_chat_start():
     # 기본 설정
     cl.user_session.set("reset_context", False)
     cl.user_session.set("use_streaming", True)
+
+    # Chat Settings UI 설정 (토글 버튼)
+    settings = await cl.ChatSettings(
+        [
+            Switch(
+                id="reset_context",
+                label="🔄 컨텍스트 리셋",
+                initial=False,
+                description="활성화하면 각 질문마다 이전 대화 맥락을 초기화합니다."
+            ),
+            Switch(
+                id="use_streaming",
+                label="📡 스트리밍 모드",
+                initial=True,
+                description="응답을 실시간으로 스트리밍합니다."
+            ),
+        ]
+    ).send()
 
     # API 연결 확인
     try:
@@ -65,7 +84,25 @@ async def on_chat_start():
         await cl.Message(content=f"❌ 오류가 발생했습니다: {str(e)}").send()
 
 # -----------------------------------------------------------------------------
-# 설정 변경 액션
+# Chat Settings 변경 이벤트
+# -----------------------------------------------------------------------------
+@cl.on_settings_update
+async def on_settings_update(settings):
+    """Chat Settings UI에서 설정이 변경될 때 호출됩니다."""
+    cl.user_session.set("reset_context", settings.get("reset_context", False))
+    cl.user_session.set("use_streaming", settings.get("use_streaming", True))
+
+    reset_status = "✅ 활성화" if settings.get("reset_context") else "❌ 비활성화"
+    stream_status = "✅ 활성화" if settings.get("use_streaming") else "❌ 비활성화"
+
+    await cl.Message(
+        content=f"⚙️ **설정이 변경되었습니다**\n\n"
+                f"- 컨텍스트 리셋: {reset_status}\n"
+                f"- 스트리밍 모드: {stream_status}"
+    ).send()
+
+# -----------------------------------------------------------------------------
+# 설정 변경 액션 (명령어용)
 # -----------------------------------------------------------------------------
 @cl.action_callback("toggle_reset_context")
 async def toggle_reset_context(action: cl.Action):

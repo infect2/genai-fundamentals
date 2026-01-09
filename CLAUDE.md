@@ -56,11 +56,25 @@ streamlit run genai-fundamentals/streamlit_client.py
 # Access at http://localhost:8501
 ```
 
-**Features:**
-- Chat interface with conversation history
-- Streaming mode toggle (real-time token display)
-- Context reset toggle
-- API connection status indicator
+### Chainlit Client
+```bash
+# Start the Chainlit chat client
+chainlit run genai-fundamentals/chainlit_client.py
+
+# Access at http://localhost:8000
+```
+
+### Client Comparison
+
+| Feature | Streamlit | Chainlit |
+|---------|-----------|----------|
+| Chat interface | ✅ | ✅ |
+| Streaming support | ✅ Toggle | ✅ Toggle |
+| Context reset | ✅ Toggle | ✅ Toggle |
+| API status | ✅ Sidebar | ✅ Start message |
+| Detail info (Cypher) | ✅ Expander | ✅ Text Element |
+| Commands | ❌ | ✅ `/settings`, `/reset`, `/help` |
+| Action buttons | ❌ | ✅ Inline buttons |
 
 ### Docker
 
@@ -111,6 +125,7 @@ genai-fundamentals/
 ├── api_server.py           # FastAPI REST API server (endpoints only)
 ├── graph_rag_service.py    # GraphRAG business logic (LangChain-based)
 ├── streamlit_client.py     # Streamlit chat client (connects to API)
+├── chainlit_client.py      # Chainlit chat client (connects to API)
 ├── vector_retriever.py     # Basic vector similarity search exercise
 ├── vector_rag.py           # Vector RAG pipeline exercise
 ├── vector_cypher_rag.py    # Vector + Cypher RAG exercise
@@ -201,7 +216,7 @@ Key packages in `requirements.txt`:
 - `neo4j-graphrag[openai]` - Neo4j GraphRAG library
 - `langchain`, `langchain-openai`, `langchain-neo4j` - LangChain framework
 - `fastapi`, `uvicorn` - REST API server
-- `streamlit` - Chat client UI
+- `streamlit`, `chainlit` - Chat client UI frameworks
 - `python-dotenv` - Environment variable management
 
 ## Test Framework

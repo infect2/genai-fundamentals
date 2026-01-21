@@ -1,0 +1,173 @@
+{
+  "name": "GraphRAG Test Results Receiver",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "graphrag-test",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-receiver",
+      "name": "Webhook: Receive Test Results",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "graphrag-test"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-failed",
+              "leftValue": "={{ $json.body.summary.failed }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-results",
+      "name": "Check: All Tests Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "SUCCESS"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'All ' + $json.body.summary.total + ' tests passed! (' + $json.body.summary.pass_rate + ')' }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $json.body.timestamp }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-success",
+      "name": "Format: Success Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [720, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst failedTests = body.results.filter(r => !r.passed);\n\nreturn [{\n  json: {\n    status: 'FAILED',\n    message: `${body.summary.failed} of ${body.summary.total} tests failed`,\n    failed_tests: failedTests.map(t => ({\n      name: t.name,\n      error: t.message,\n      duration_ms: t.duration_ms\n    })),\n    timestamp: body.timestamp\n  }\n}];"
+      },
+      "id": "format-failure",
+      "name": "Format: Failure Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 380]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $json.status, message: $json.message }) }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond: Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [960, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-failure",
+      "name": "Respond: Failure Details",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [960, 380]
+    },
+    {
+      "parameters": {
+        "channel": "#dev-alerts",
+        "text": "=:white_check_mark: *GraphRAG API Tests Passed*\n\n{{ $json.message }}\nTimestamp: {{ $json.timestamp }}",
+        "otherOptions": {}
+      },
+      "id": "slack-success",
+      "name": "Slack: Success Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [960, 100],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "channel": "#dev-alerts",
+        "text": "=:x: *GraphRAG API Tests Failed*\n\n{{ $json.message }}\n\n*Failed Tests:*\n{{ $json.failed_tests.map(t => '- ' + t.name + ': ' + t.error).join('\\n') }}\n\nTimestamp: {{ $json.timestamp }}",
+        "otherOptions": {}
+      },
+      "id": "slack-failure",
+      "name": "Slack: Failure Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [960, 500],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Webhook: Receive Test Results": {
+      "main": [
+        [{"node": "Check: All Tests Passed?", "type": "main", "index": 0}]
+      ]
+    },
+    "Check: All Tests Passed?": {
+      "main": [
+        [{"node": "Format: Success Message", "type": "main", "index": 0}],
+        [{"node": "Format: Failure Details", "type": "main", "index": 0}]
+      ]
+    },
+    "Format: Success Message": {
+      "main": [
+        [
+          {"node": "Respond: Success", "type": "main", "index": 0},
+          {"node": "Slack: Success Notification", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Format: Failure Details": {
+      "main": [
+        [
+          {"node": "Respond: Failure Details", "type": "main", "index": 0},
+          {"node": "Slack: Failure Alert", "type": "main", "index": 0}
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["webhook", "test-receiver", "graphrag"],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

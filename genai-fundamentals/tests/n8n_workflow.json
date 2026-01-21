@@ -1,0 +1,201 @@
+{
+  "name": "GraphRAG API Integration Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:8000/",
+        "options": {}
+      },
+      "id": "health-check",
+      "name": "Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/query",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"query\": \"Which actors appeared in The Matrix?\",\n  \"session_id\": \"n8n-test-session\",\n  \"reset_context\": false,\n  \"stream\": false\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "query-actors",
+      "name": "Query: Actors in Matrix",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/query",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"query\": \"What movies did Keanu Reeves act in?\",\n  \"session_id\": \"n8n-test-session\",\n  \"reset_context\": false,\n  \"stream\": false\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "query-movies",
+      "name": "Query: Keanu Movies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 420]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:8000/sessions",
+        "options": {}
+      },
+      "id": "list-sessions",
+      "name": "List Sessions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/reset/n8n-test-session",
+        "options": {}
+      },
+      "id": "reset-session",
+      "name": "Reset Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.answer }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validate-response",
+      "name": "Validate Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 420]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "SUCCESS"
+            },
+            {
+              "name": "message",
+              "value": "All integration tests passed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "success-output",
+      "name": "Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [920, 380]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "FAILED"
+            },
+            {
+              "name": "message",
+              "value": "Response validation failed - missing answer field"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "failure-output",
+      "name": "Failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [920, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {"node": "Health Check", "type": "main", "index": 0},
+          {"node": "Query: Actors in Matrix", "type": "main", "index": 0},
+          {"node": "Query: Keanu Movies", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Health Check": {
+      "main": [
+        [{"node": "List Sessions", "type": "main", "index": 0}]
+      ]
+    },
+    "Query: Actors in Matrix": {
+      "main": [
+        [{"node": "List Sessions", "type": "main", "index": 0}]
+      ]
+    },
+    "Query: Keanu Movies": {
+      "main": [
+        [{"node": "Validate Response", "type": "main", "index": 0}]
+      ]
+    },
+    "List Sessions": {
+      "main": [
+        [{"node": "Reset Session", "type": "main", "index": 0}]
+      ]
+    },
+    "Validate Response": {
+      "main": [
+        [{"node": "Success", "type": "main", "index": 0}],
+        [{"node": "Failure", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["integration-test", "graphrag"],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

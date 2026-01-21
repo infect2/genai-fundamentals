@@ -247,3 +247,112 @@ The Neo4j database contains movie data with the following schema:
 - `(User)-[:RATED {rating: float}]->(Movie)`
 
 **Note:** Movie titles with articles are stored as "Title, The" format (e.g., "Matrix, The", "Godfather, The")
+
+## MINE Evaluator (Ontology Validator)
+
+MINE (Measure of Information in Nodes and Edges) Evaluator는 Knowledge Graph의 품질을 평가하는 도구입니다.
+
+**참고 자료:**
+- 논문: [arXiv:2502.09956 - KGGen](https://arxiv.org/abs/2502.09956)
+- 블로그: [The Jaguar Problem](https://medium.com/@aiwithakashgoyal/the-jaguar-problem-the-ontology-nightmare-haunting-your-knowledge-graph-07aed203d256)
+
+### 실행 방법
+```bash
+python -m genai-fundamentals.mine_evaluator
+```
+
+### 평가 지표
+
+| 지표 | 가중치 | 설명 |
+|------|--------|------|
+| Semantic Similarity | 50% | 원본 텍스트와 그래프 재구성 텍스트 간 유사도 (OpenAI Embeddings) |
+| Ontology Coherence | 30% | 정의된 온톨로지 스키마 준수율 |
+| Type Consistency | 20% | 엔티티 타입 일관성 (Jaguar Problem 탐지) |
+
+### Jaguar Problem
+
+동음이의어로 인한 엔티티 타입 혼동 문제:
+- 예: "Jaguar"가 자동차인지 동물인지 잘못 분류
+- MINE은 타입 제약 조건을 통해 이러한 문제를 탐지
+
+### 온톨로지 스키마
+
+`MOVIE_ONTOLOGY_SCHEMA`에 정의된 검증 규칙:
+
+```python
+{
+    "node_types": {
+        "Movie": {"required_properties": ["title"], ...},
+        "Actor": {"required_properties": ["name"], ...},
+        ...
+    },
+    "relationship_types": {
+        "ACTED_IN": {"source": "Actor", "target": "Movie"},
+        "DIRECTED": {"source": "Director", "target": "Movie"},
+        ...
+    },
+    "type_constraints": {
+        "Actor": {"cannot_be": ["Movie", "Genre"]},
+        ...
+    }
+}
+```
+
+### 사용 예시
+
+```python
+from mine_evaluator import MINEEvaluator
+
+evaluator = MINEEvaluator(
+    neo4j_uri="neo4j://localhost:7687",
+    neo4j_user="neo4j",
+    neo4j_password="password"
+)
+
+result = evaluator.evaluate()
+evaluator.print_report(result)
+
+# 결과 접근
+print(f"Overall: {result.overall_score}")
+print(f"Semantic: {result.semantic_similarity}")
+print(f"Ontology: {result.ontology_coherence}")
+print(f"Type: {result.type_consistency}")
+```
+
+### 출력 예시
+
+```
+============================================================
+MINE (Measure of Information in Nodes and Edges) Report
+============================================================
+
+Overall Score: 100.00%
+
+Component Scores:
+  - Semantic Similarity (50%): 100.00%
+  - Ontology Coherence  (30%): 100.00%
+  - Type Consistency    (20%): 100.00%
+
+Graph Statistics:
+  - Total Nodes: 59
+  - Total Relationships: 78
+============================================================
+```
+
+## Local Neo4j Support
+
+### 연결 테스트
+```bash
+python -m genai-fundamentals.test_local_neo4j
+```
+
+### 샘플 데이터 로드
+```bash
+python -m genai-fundamentals.load_movie_data
+```
+
+### Neo4j Desktop 설정
+1. APOC 플러그인 설치 필요 (Plugins → APOC → Install)
+2. `.env` 파일에서 URI 설정:
+   - 로컬 직접 실행: `NEO4J_URI="neo4j://127.0.0.1:7687"`
+   - Docker에서 호스트 연결: `NEO4J_URI="neo4j://host.docker.internal:7687"`

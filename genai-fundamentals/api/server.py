@@ -11,9 +11,9 @@ GraphRAG 비즈니스 로직은 graph_rag_service 모듈에 위임합니다.
 - GET  /sessions   : 활성 세션 목록
 
 실행 방법:
-    python -m genai-fundamentals.api_server
+    python -m genai-fundamentals.api.server
     또는
-    uvicorn genai-fundamentals.api_server:app --reload
+    uvicorn genai-fundamentals.api.server:app --reload
 """
 
 from fastapi import FastAPI, HTTPException
@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 # GraphRAG 서비스 모듈 임포트
-from .graph_rag_service import GraphRAGService, get_service
+from .service import GraphRAGService, get_service
 
 
 # =============================================================================

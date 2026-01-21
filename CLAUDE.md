@@ -14,7 +14,7 @@ This repository accompanies the [Neo4j and GenerativeAI Fundamentals course](htt
 pip install -r requirements.txt
 
 # Verify environment is configured correctly
-python genai-fundamentals/test_environment.py
+python -m genai-fundamentals.tools.test_environment
 ```
 
 ### Running Tests
@@ -30,16 +30,16 @@ pytest genai-fundamentals/solutions/test_solutions.py::test_vector_rag -v
 ```bash
 # Run from repository root (modules are imported by name)
 python -m genai-fundamentals.solutions.vector_rag
-python -m genai-fundamentals.text2cypher_rag
+python -m genai-fundamentals.exercises.text2cypher_rag
 ```
 
 ### Running API Server
 ```bash
 # Start the REST API server
-python -m genai-fundamentals.api_server
+python -m genai-fundamentals.api.server
 
 # Or with uvicorn (with auto-reload)
-uvicorn genai-fundamentals.api_server:app --reload --port 8000
+uvicorn genai-fundamentals.api.server:app --reload --port 8000
 
 # Test the server
 curl http://localhost:8000/
@@ -51,7 +51,7 @@ curl -X POST "http://localhost:8000/query" \
 ### Streamlit Client
 ```bash
 # Start the Streamlit chat client
-streamlit run genai-fundamentals/streamlit_client.py
+streamlit run genai-fundamentals/clients/streamlit_app.py
 
 # Access at http://localhost:8501
 ```
@@ -59,10 +59,10 @@ streamlit run genai-fundamentals/streamlit_client.py
 ### Chainlit Client
 ```bash
 # Start the Chainlit chat client (default port: 8000)
-chainlit run genai-fundamentals/chainlit_client.py
+chainlit run genai-fundamentals/clients/chainlit_app.py
 
 # Or specify a different port
-chainlit run genai-fundamentals/chainlit_client.py --port 8502
+chainlit run genai-fundamentals/clients/chainlit_app.py --port 8502
 
 # Access at http://localhost:8000 (or specified port)
 ```
@@ -125,19 +125,31 @@ docker run -p 8000:8000 \
 ### Directory Structure
 ```
 genai-fundamentals/
-├── api_server.py           # FastAPI REST API server (endpoints only)
-├── graph_rag_service.py    # GraphRAG business logic (LangChain-based)
-├── streamlit_client.py     # Streamlit chat client (connects to API)
-├── chainlit_client.py      # Chainlit chat client (connects to API)
-├── vector_retriever.py     # Basic vector similarity search exercise
-├── vector_rag.py           # Vector RAG pipeline exercise
-├── vector_cypher_rag.py    # Vector + Cypher RAG exercise
-├── text2cypher_rag.py      # Text-to-Cypher RAG exercise
-└── solutions/              # Complete working implementations
+├── api/                        # REST API 서버
+│   ├── __init__.py
+│   ├── server.py               # FastAPI endpoints
+│   └── service.py              # GraphRAG business logic (LangChain)
+├── clients/                    # 채팅 클라이언트
+│   ├── __init__.py
+│   ├── chainlit_app.py         # Chainlit chat interface
+│   └── streamlit_app.py        # Streamlit chat interface
+├── exercises/                  # RAG 실습 파일
+│   ├── __init__.py
+│   ├── vector_retriever.py     # Basic vector similarity search
+│   ├── vector_rag.py           # Vector RAG pipeline
+│   ├── vector_cypher_rag.py    # Vector + Cypher RAG
+│   └── text2cypher_rag.py      # Text-to-Cypher RAG
+├── tools/                      # 유틸리티 도구
+│   ├── __init__.py
+│   ├── test_environment.py     # Environment configuration test
+│   ├── test_local_neo4j.py     # Local Neo4j connection test
+│   ├── load_movie_data.py      # Sample movie data loader
+│   └── mine_evaluator.py       # MINE ontology validator
+└── solutions/                  # Complete working implementations
 ```
 
 ### Exercise Pattern
-Each exercise file in `genai-fundamentals/` has a corresponding solution in `genai-fundamentals/solutions/`. Students complete the exercises; solutions demonstrate the full implementation.
+Each exercise file in `genai-fundamentals/exercises/` has a corresponding solution in `genai-fundamentals/solutions/`. Students complete the exercises; solutions demonstrate the full implementation.
 
 ### Key Patterns Used
 
@@ -149,7 +161,7 @@ Each exercise file in `genai-fundamentals/` has a corresponding solution in `gen
 5. Build the pipeline with `GraphRAG(retriever=retriever, llm=llm)`
 6. Execute queries with `rag.search(query_text=..., retriever_config={"top_k": N})`
 
-**LangChain GraphRAG Pipeline (api_server.py):**
+**LangChain GraphRAG Pipeline (api/server.py):**
 1. Connect to Neo4j with `Neo4jGraph()`
 2. Create LLM (`ChatOpenAI`)
 3. Define Cypher generation prompt with few-shot examples
@@ -164,8 +176,8 @@ Each exercise file in `genai-fundamentals/` has a corresponding solution in `gen
 ## REST API Server
 
 ### Files
-- `api_server.py` - FastAPI endpoints (thin layer)
-- `graph_rag_service.py` - GraphRAG business logic
+- `api/server.py` - FastAPI endpoints (thin layer)
+- `api/service.py` - GraphRAG business logic
 
 ### Endpoints
 | Method | Path | Description |
@@ -258,7 +270,7 @@ MINE (Measure of Information in Nodes and Edges) Evaluator는 Knowledge Graph의
 
 ### 실행 방법
 ```bash
-python -m genai-fundamentals.mine_evaluator
+python -m genai-fundamentals.tools.mine_evaluator
 ```
 
 ### 평가 지표
@@ -301,7 +313,7 @@ python -m genai-fundamentals.mine_evaluator
 ### 사용 예시
 
 ```python
-from mine_evaluator import MINEEvaluator
+from genai_fundamentals.tools.mine_evaluator import MINEEvaluator
 
 evaluator = MINEEvaluator(
     neo4j_uri="neo4j://localhost:7687",
@@ -343,12 +355,12 @@ Graph Statistics:
 
 ### 연결 테스트
 ```bash
-python -m genai-fundamentals.test_local_neo4j
+python -m genai-fundamentals.tools.test_local_neo4j
 ```
 
 ### 샘플 데이터 로드
 ```bash
-python -m genai-fundamentals.load_movie_data
+python -m genai-fundamentals.tools.load_movie_data
 ```
 
 ### Neo4j Desktop 설정

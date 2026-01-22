@@ -250,10 +250,10 @@ class MINEEvaluator:
     def _extract_graph_data(self) -> Dict[str, Any]:
         """Neo4j에서 그래프 데이터 추출"""
         with self.driver.session() as session:
-            # 노드 추출
+            # 노드 추출 (elementId 사용 - Neo4j 5.x 호환)
             nodes_result = session.run("""
                 MATCH (n)
-                RETURN id(n) as id, labels(n) as labels, properties(n) as props
+                RETURN elementId(n) as id, labels(n) as labels, properties(n) as props
             """)
             nodes = [
                 {
@@ -264,10 +264,10 @@ class MINEEvaluator:
                 for record in nodes_result
             ]
 
-            # 관계 추출
+            # 관계 추출 (elementId 사용 - Neo4j 5.x 호환)
             rels_result = session.run("""
                 MATCH (a)-[r]->(b)
-                RETURN id(a) as source, id(b) as target,
+                RETURN elementId(a) as source, elementId(b) as target,
                        type(r) as type, properties(r) as props,
                        labels(a) as source_labels, labels(b) as target_labels
             """)

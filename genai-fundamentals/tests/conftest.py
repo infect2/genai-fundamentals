@@ -16,6 +16,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "asyncio: mark test as an async test"
     )
+    config.addinivalue_line(
+        "markers", "neo4j: mark test as requiring Neo4j connection"
+    )
 
 
 @pytest.fixture

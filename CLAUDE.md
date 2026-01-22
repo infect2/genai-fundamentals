@@ -79,6 +79,29 @@ chainlit run genai-fundamentals/clients/chainlit_app.py --port 8502
 | Commands | ❌ | ✅ `/settings`, `/reset`, `/help` |
 | Action buttons | ❌ | ✅ Inline buttons |
 
+### MCP Server
+
+```bash
+# Start the MCP server (stdio mode)
+python -m genai-fundamentals.api.mcp_server
+
+# Test MCP tools list
+echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | python -m genai-fundamentals.api.mcp_server
+```
+
+**Claude Desktop 설정** (`~/.claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "graphrag": {
+      "command": "python",
+      "args": ["-m", "genai-fundamentals.api.mcp_server"],
+      "cwd": "/path/to/genai-fundamentals"
+    }
+  }
+}
+```
+
 ### Docker
 
 ```bash
@@ -125,10 +148,11 @@ docker run -p 8000:8000 \
 ### Directory Structure
 ```
 genai-fundamentals/
-├── api/                        # REST API 서버
+├── api/                        # REST API 서버 및 MCP 서버
 │   ├── __init__.py
 │   ├── server.py               # FastAPI endpoints
-│   └── service.py              # GraphRAG business logic (LangChain)
+│   ├── service.py              # GraphRAG business logic (LangChain)
+│   └── mcp_server.py           # MCP (Model Context Protocol) server
 ├── clients/                    # 채팅 클라이언트
 │   ├── __init__.py
 │   ├── chainlit_app.py         # Chainlit chat interface
@@ -217,6 +241,50 @@ data: {"type": "token", "content": "Weaving"}
 data: {"type": "done"}
 ```
 
+## MCP Server
+
+MCP (Model Context Protocol) 서버는 REST API와 동일한 비즈니스 로직(`service.py`)을 공유하면서 MCP 프로토콜을 통해 GraphRAG 기능을 제공합니다.
+
+### Files
+- `api/mcp_server.py` - MCP server implementation
+- `api/service.py` - GraphRAG business logic (shared with REST API)
+
+### MCP Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `query` | 자연어로 Neo4j 그래프 쿼리 | `query` (필수), `session_id`, `reset_context` |
+| `reset_session` | 세션 컨텍스트 초기화 | `session_id` (필수) |
+| `list_sessions` | 활성 세션 목록 조회 | - |
+
+### Query Tool Response Format
+```json
+{
+  "answer": "Hugo Weaving, Laurence Fishburne...",
+  "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
+  "context": ["{'a.name': 'Hugo Weaving'}", ...]
+}
+```
+
+### Usage Example (Python)
+```python
+# MCP 클라이언트에서 tool 호출
+result = await client.call_tool("query", {
+    "query": "Which actors appeared in The Matrix?",
+    "session_id": "user123"
+})
+```
+
+### Architecture Comparison
+
+| Feature | REST API | MCP Server |
+|---------|----------|------------|
+| Protocol | HTTP | stdio (JSON-RPC) |
+| Entry point | `api/server.py` | `api/mcp_server.py` |
+| Business logic | `api/service.py` | `api/service.py` (shared) |
+| Streaming | SSE | Not supported |
+| Use case | Web apps, curl | Claude Desktop, AI agents |
+
 ## Configuration
 
 Environment variables required in `.env` file (see `.env.example`):
@@ -231,6 +299,7 @@ Key packages in `requirements.txt`:
 - `neo4j-graphrag[openai]` - Neo4j GraphRAG library
 - `langchain`, `langchain-openai`, `langchain-neo4j` - LangChain framework
 - `fastapi`, `uvicorn` - REST API server
+- `mcp` - Model Context Protocol server
 - `streamlit`, `chainlit` - Chat client UI frameworks
 - `python-dotenv` - Environment variable management
 

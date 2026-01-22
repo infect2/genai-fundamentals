@@ -273,9 +273,9 @@ async def show_settings(action: cl.Action):
             # name: action_callback 데코레이터의 이름과 일치해야 함
             # value: 콜백 함수에 전달되는 값 (현재는 사용하지 않음)
             # label: 버튼에 표시되는 텍스트
-            cl.Action(name="toggle_reset_context", value="toggle_reset", label="🔄 컨텍스트 리셋 토글"),
-            cl.Action(name="toggle_streaming", value="toggle_stream", label="📡 스트리밍 토글"),
-            cl.Action(name="reset_session", value="reset", label="🗑️ 세션 초기화"),
+            cl.Action(name="toggle_reset_context", payload={"action": "toggle_reset"}, label="🔄 컨텍스트 리셋 토글"),
+            cl.Action(name="toggle_streaming", payload={"action": "toggle_stream"}, label="📡 스트리밍 토글"),
+            cl.Action(name="reset_session", payload={"action": "reset"}, label="🗑️ 세션 초기화"),
         ]
     ).send()
 
@@ -540,34 +540,23 @@ async def on_message(message: cl.Message):
 
     # Cypher 쿼리나 Context가 있는 경우에만 상세 정보 표시
     if cypher or context:
-        # Chainlit의 Element를 사용하여 접을 수 있는 상세 정보 표시
-        elements = []
+        # Chainlit 2.x에서는 마크다운으로 직접 표시
+        details_content = "🔍 **상세 정보**\n\n"
 
         if cypher:
-            # Cypher 쿼리를 Text Element로 추가
-            # display="inline": 인라인으로 표시 (펼침/접기 가능)
-            elements.append(
-                cl.Text(name="Cypher Query", content=cypher, display="inline")
-            )
+            details_content += "**Cypher Query:**\n```cypher\n" + cypher + "\n```\n\n"
 
         if context and len(context) > 0:
             # Context 데이터를 JSON 형식으로 포맷팅 (상위 5개만)
-            # ensure_ascii=False: 한글이 유니코드 이스케이프 없이 표시됨
             context_str = json.dumps(context[:5], indent=2, ensure_ascii=False)
-            elements.append(
-                cl.Text(name="Context (Top 5)", content=context_str, display="inline")
-            )
+            details_content += "**Context (Top 5):**\n```json\n" + context_str + "\n```"
 
-        if elements:
-            # 상세 정보 메시지와 설정 버튼 표시
-            await cl.Message(
-                content="🔍 **상세 정보**",
-                elements=elements,
-                actions=[
-                    # 추가 설정 접근을 위한 버튼
-                    cl.Action(name="show_settings", value="settings", label="⚙️ 설정"),
-                ]
-            ).send()
+        await cl.Message(
+            content=details_content,
+            actions=[
+                cl.Action(name="show_settings", payload={"action": "settings"}, label="⚙️ 설정"),
+            ]
+        ).send()
 
 # -----------------------------------------------------------------------------
 # 세션 종료 이벤트 핸들러

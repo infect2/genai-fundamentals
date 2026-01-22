@@ -82,24 +82,48 @@ chainlit run genai-fundamentals/clients/chainlit_app.py --port 8502
 ### MCP Server
 
 ```bash
-# Start the MCP server (stdio mode)
+# stdio 모드 (Claude Desktop이 자동 실행)
 python -m genai-fundamentals.api.mcp_server
 
-# Test MCP tools list
-echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | python -m genai-fundamentals.api.mcp_server
+# HTTP/SSE 모드 (URL 기반, 수동 실행 필요)
+python -m genai-fundamentals.api.mcp_server_http --port 3001
+
+# HTTPS 모드 (SSL 인증서 필요)
+python -m genai-fundamentals.api.mcp_server_http --port 3001 --ssl
 ```
 
-**Claude Desktop 설정** (`~/.claude/claude_desktop_config.json`):
+**Claude Desktop 설정** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+stdio 모드 (권장):
 ```json
 {
   "mcpServers": {
     "graphrag": {
-      "command": "python",
+      "command": "/path/to/.pyenv/shims/python3",
       "args": ["-m", "genai-fundamentals.api.mcp_server"],
-      "cwd": "/path/to/genai-fundamentals"
+      "cwd": "/path/to/genai-fundamentals",
+      "env": {
+        "PYTHONPATH": "/path/to/genai-fundamentals"
+      }
     }
   }
 }
+```
+
+HTTP/SSE 모드:
+```json
+{
+  "mcpServers": {
+    "graphrag": {
+      "url": "https://localhost:3001/sse"
+    }
+  }
+}
+```
+
+**MCP 테스트:**
+```bash
+pytest genai-fundamentals/tests/test_mcp_server.py -v -k "not neo4j"
 ```
 
 ### Docker

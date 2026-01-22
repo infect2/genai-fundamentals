@@ -176,6 +176,7 @@ genai-fundamentals/
 │   ├── __init__.py
 │   ├── server.py               # FastAPI endpoints
 │   ├── service.py              # GraphRAG business logic (LangChain)
+│   ├── router.py               # Query Router (쿼리 분류 및 라우팅)
 │   └── mcp_server.py           # MCP (Model Context Protocol) server
 ├── clients/                    # 채팅 클라이언트
 │   ├── __init__.py
@@ -209,12 +210,12 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 5. Build the pipeline with `GraphRAG(retriever=retriever, llm=llm)`
 6. Execute queries with `rag.search(query_text=..., retriever_config={"top_k": N})`
 
-**LangChain GraphRAG Pipeline (api/server.py):**
+**LangChain GraphRAG Pipeline (api/service.py):**
 1. Connect to Neo4j with `Neo4jGraph()`
 2. Create LLM (`ChatOpenAI`)
-3. Define Cypher generation prompt with few-shot examples
-4. Build chain with `GraphCypherQAChain.from_llm()`
-5. Execute queries with `chain.invoke({"query": ...})`
+3. **Query Router로 쿼리 분류 (cypher/vector/hybrid/llm_only)**
+4. 분류된 타입에 따라 적합한 RAG 파이프라인 선택
+5. Execute queries with routing-based pipeline selection
 
 ### Retriever Types
 - **VectorRetriever** - Basic vector similarity search on movie plots
@@ -226,13 +227,14 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 ### Files
 - `api/server.py` - FastAPI endpoints (thin layer)
 - `api/service.py` - GraphRAG business logic
+- `api/router.py` - Query Router (쿼리 분류)
 
 ### Endpoints
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Server status |
 | GET | `/docs` | Swagger UI documentation |
-| POST | `/query` | Execute natural language query |
+| POST | `/query` | Execute natural language query (with auto-routing) |
 | POST | `/reset/{session_id}` | Reset session context |
 | GET | `/sessions` | List active sessions |
 
@@ -242,7 +244,8 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
   "query": "Which actors appeared in The Matrix?",
   "session_id": "user123",      // Optional (default: "default")
   "reset_context": false,       // Optional (default: false)
-  "stream": false               // Optional (default: false)
+  "stream": false,              // Optional (default: false)
+  "force_route": null           // Optional: "cypher", "vector", "hybrid", "llm_only"
 }
 ```
 
@@ -251,14 +254,16 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 {
   "answer": "Hugo Weaving, Laurence Fishburne...",
   "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
-  "context": ["{'a.name': 'Hugo Weaving'}", ...]
+  "context": ["{'a.name': 'Hugo Weaving'}", ...],
+  "route": "cypher",
+  "route_reasoning": "특정 영화 제목으로 배우 조회"
 }
 ```
 
 ### Streaming Response (SSE)
 When `stream: true`, response is Server-Sent Events:
 ```
-data: {"type": "metadata", "cypher": "...", "context": [...]}
+data: {"type": "metadata", "cypher": "...", "context": [...], "route": "cypher", "route_reasoning": "..."}
 data: {"type": "token", "content": "Hugo "}
 data: {"type": "token", "content": "Weaving"}
 ...
@@ -308,6 +313,70 @@ result = await client.call_tool("query", {
 | Business logic | `api/service.py` | `api/service.py` (shared) |
 | Streaming | SSE | Not supported |
 | Use case | Web apps, curl | Claude Desktop, AI agents |
+
+## Query Router
+
+Query Router는 쿼리 유형에 따라 적합한 RAG 파이프라인을 자동 선택합니다.
+
+### 아키텍처
+
+```
+사용자 쿼리
+    ↓
+┌─────────────────┐
+│  Query Router   │ ← LLM 기반 쿼리 분류
+└────────┬────────┘
+         ↓
+    ┌────┴────┬─────────┬─────────┐
+    ↓         ↓         ↓         ↓
+ cypher    vector    hybrid   llm_only
+  RAG       RAG       RAG     (직접응답)
+```
+
+### 라우트 타입
+
+| Route | 설명 | 예시 쿼리 |
+|-------|------|----------|
+| `cypher` | 엔티티/관계 조회 (Text-to-Cypher) | "톰 행크스가 출연한 영화는?" |
+| `vector` | 시맨틱 검색 (Vector similarity) | "슬픈 영화 추천해줘" |
+| `hybrid` | 복합 쿼리 (Vector + Cypher) | "90년대 액션 영화 중 평점 높은 것" |
+| `llm_only` | 일반 질문 (DB 조회 없음) | "영화란 무엇인가요?" |
+
+### 사용 예시
+
+```bash
+# 자동 라우팅 (기본)
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "톰 행크스가 출연한 영화는?"}'
+# → route: "cypher"
+
+# 강제 라우팅 (특정 파이프라인 지정)
+curl -X POST "http://localhost:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "슬픈 영화", "force_route": "vector"}'
+# → route: "vector" (강제)
+```
+
+### 테스트
+
+```bash
+# Router 테스트 실행
+pytest genai-fundamentals/tests/test_router.py -v
+
+# Mock 테스트만 (API 호출 없음)
+pytest genai-fundamentals/tests/test_router.py -v -k "mock"
+
+# 통합 테스트 (OpenAI API 필요)
+pytest genai-fundamentals/tests/test_router.py -v -k "integration"
+```
+
+### 라우팅 비활성화
+
+```python
+# 라우팅 없이 항상 Cypher RAG 사용
+service = GraphRAGService(enable_routing=False)
+```
 
 ## Configuration
 

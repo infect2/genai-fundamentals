@@ -64,11 +64,13 @@ class QueryRequest(BaseModel):
         session_id: 세션 ID (선택, 기본값: "default")
         reset_context: 컨텍스트 리셋 여부 (선택, 기본값: False)
         stream: 스트리밍 응답 여부 (선택, 기본값: False)
+        force_route: 강제 라우트 지정 (선택, cypher/vector/hybrid/llm_only)
     """
     query: str
     session_id: Optional[str] = "default"
     reset_context: bool = False
     stream: bool = False
+    force_route: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -79,10 +81,14 @@ class QueryResponse(BaseModel):
         answer: LLM이 생성한 자연어 답변
         cypher: 생성된 Cypher 쿼리
         context: Neo4j에서 가져온 원본 데이터
+        route: 사용된 라우트 타입 (cypher, vector, hybrid, llm_only)
+        route_reasoning: 라우팅 결정 이유
     """
     answer: str
     cypher: str
     context: list
+    route: str = ""
+    route_reasoning: str = ""
 
 
 # =============================================================================
@@ -109,6 +115,9 @@ async def query(request: QueryRequest):
     """
     자연어 쿼리 처리 엔드포인트
 
+    Query Router를 통해 쿼리 유형을 자동 분류하고
+    적합한 RAG 파이프라인을 선택하여 실행합니다.
+
     스트리밍 여부에 따라 응답 형식이 달라집니다:
     - stream=False: JSON 응답 (QueryResponse)
     - stream=True: SSE 스트리밍 응답
@@ -129,7 +138,8 @@ async def query(request: QueryRequest):
                 service.query_stream(
                     query_text=request.query,
                     session_id=request.session_id,
-                    reset_context=request.reset_context
+                    reset_context=request.reset_context,
+                    force_route=request.force_route
                 ),
                 media_type="text/event-stream"
             )
@@ -138,13 +148,16 @@ async def query(request: QueryRequest):
             result = await service.query_async(
                 query_text=request.query,
                 session_id=request.session_id,
-                reset_context=request.reset_context
+                reset_context=request.reset_context,
+                force_route=request.force_route
             )
 
             return QueryResponse(
                 answer=result.answer,
                 cypher=result.cypher,
-                context=result.context
+                context=result.context,
+                route=result.route,
+                route_reasoning=result.route_reasoning
             )
 
     except Exception as e:

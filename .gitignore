@@ -33,3 +33,9 @@ MANIFEST.files/
 
 # SSL certificates
 certs/
+
+# Chainlit auto-generated files
+.chainlit/
+
+# Claude local config
+.claude/

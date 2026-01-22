@@ -177,11 +177,12 @@ class GraphRAGService:
         )
 
         # GraphCypherQAChain 생성
+        # Note: verbose=False for MCP server compatibility (stdout must be clean JSON-RPC)
         self._chain = GraphCypherQAChain.from_llm(
             llm=self._llm,
             graph=self._graph,
             cypher_prompt=self._cypher_prompt,
-            verbose=True,
+            verbose=False,
             return_intermediate_steps=True,
             allow_dangerous_requests=True
         )
@@ -190,7 +191,7 @@ class GraphRAGService:
             llm=self._streaming_llm,
             graph=self._graph,
             cypher_prompt=self._cypher_prompt,
-            verbose=True,
+            verbose=False,
             return_intermediate_steps=True,
             allow_dangerous_requests=True
         )

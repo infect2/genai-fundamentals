@@ -35,3 +35,4 @@ streamlit==1.41.0
 chainlit>=2.0.0
 pytest-asyncio==0.24.0
 mcp>=1.0.0
+langgraph>=0.2.0

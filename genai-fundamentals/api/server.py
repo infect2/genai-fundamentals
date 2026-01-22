@@ -23,6 +23,7 @@ from typing import Optional
 
 # GraphRAG 서비스 모듈 임포트
 from .service import GraphRAGService, get_service
+from .agent import AgentService
 
 
 # =============================================================================
@@ -37,6 +38,7 @@ app = FastAPI(
 
 # GraphRAG 서비스 인스턴스 (싱글톤)
 service: GraphRAGService = None
+agent_service: AgentService = None
 
 
 @app.on_event("startup")
@@ -47,8 +49,9 @@ async def startup_event():
     FastAPI의 lifespan 이벤트를 사용해 서버 시작 시
     한 번만 서비스를 초기화합니다.
     """
-    global service
+    global service, agent_service
     service = get_service()
+    agent_service = AgentService(service)
 
 
 # =============================================================================
@@ -89,6 +92,38 @@ class QueryResponse(BaseModel):
     context: list
     route: str = ""
     route_reasoning: str = ""
+
+
+class AgentQueryRequest(BaseModel):
+    """
+    /agent/query 엔드포인트 요청 모델
+
+    Attributes:
+        query: 사용자 질문 (필수)
+        session_id: 세션 ID (선택, 기본값: "default")
+        stream: 스트리밍 응답 여부 (선택, 기본값: False)
+    """
+    query: str
+    session_id: Optional[str] = "default"
+    stream: bool = False
+
+
+class AgentQueryResponse(BaseModel):
+    """
+    /agent/query 엔드포인트 응답 모델 (비스트리밍)
+
+    Attributes:
+        answer: Agent가 생성한 최종 답변
+        thoughts: Agent의 추론 과정
+        tool_calls: 호출된 도구 목록
+        tool_results: 도구 실행 결과
+        iterations: 총 반복 횟수
+    """
+    answer: str
+    thoughts: list
+    tool_calls: list
+    tool_results: list
+    iterations: int
 
 
 # =============================================================================
@@ -193,6 +228,61 @@ def list_sessions():
         세션 ID 목록
     """
     return {"sessions": service.list_sessions()}
+
+
+# =============================================================================
+# Agent API 엔드포인트
+# =============================================================================
+
+@app.post("/agent/query")
+async def agent_query(request: AgentQueryRequest):
+    """
+    ReAct Agent를 사용한 자연어 쿼리 처리 엔드포인트
+
+    Multi-step reasoning을 통해 복잡한 쿼리를 처리합니다.
+    기존 /query 엔드포인트와 달리 여러 도구를 조합하여
+    답변을 생성합니다.
+
+    스트리밍 여부에 따라 응답 형식이 달라집니다:
+    - stream=False: JSON 응답 (AgentQueryResponse)
+    - stream=True: SSE 스트리밍 응답
+
+    Args:
+        request: AgentQueryRequest 객체
+
+    Returns:
+        AgentQueryResponse 또는 StreamingResponse
+
+    Raises:
+        HTTPException: 처리 중 오류 발생 시 500 에러
+    """
+    try:
+        if request.stream:
+            # 스트리밍 응답: Server-Sent Events (SSE)
+            return StreamingResponse(
+                agent_service.query_stream(
+                    query_text=request.query,
+                    session_id=request.session_id
+                ),
+                media_type="text/event-stream"
+            )
+        else:
+            # 비스트리밍 응답: JSON
+            result = await agent_service.query_async(
+                query_text=request.query,
+                session_id=request.session_id
+            )
+
+            return AgentQueryResponse(
+                answer=result.answer,
+                thoughts=result.thoughts,
+                tool_calls=result.tool_calls,
+                tool_results=result.tool_results,
+                iterations=result.iterations
+            )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================

@@ -177,7 +177,14 @@ genai-fundamentals/
 │   ├── server.py               # FastAPI endpoints
 │   ├── service.py              # GraphRAG business logic (LangChain)
 │   ├── router.py               # Query Router (쿼리 분류 및 라우팅)
-│   └── mcp_server.py           # MCP (Model Context Protocol) server
+│   ├── mcp_server.py           # MCP (Model Context Protocol) server
+│   └── agent/                  # ReAct Agent (LangGraph 기반)
+│       ├── __init__.py
+│       ├── graph.py            # LangGraph StateGraph 정의
+│       ├── state.py            # AgentState TypedDict
+│       ├── tools.py            # Agent 도구 정의
+│       ├── prompts.py          # ReAct 시스템 프롬프트
+│       └── service.py          # AgentService 클래스
 ├── clients/                    # 채팅 클라이언트
 │   ├── __init__.py
 │   ├── chainlit_app.py         # Chainlit chat interface
@@ -235,6 +242,7 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 | GET | `/` | Server status |
 | GET | `/docs` | Swagger UI documentation |
 | POST | `/query` | Execute natural language query (with auto-routing) |
+| POST | `/agent/query` | Execute query with ReAct Agent (multi-step reasoning) |
 | POST | `/reset/{session_id}` | Reset session context |
 | GET | `/sessions` | List active sessions |
 
@@ -283,6 +291,7 @@ MCP (Model Context Protocol) 서버는 REST API와 동일한 비즈니스 로직
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `query` | 자연어로 Neo4j 그래프 쿼리 | `query` (필수), `session_id`, `reset_context` |
+| `agent_query` | ReAct Agent로 복잡한 쿼리 처리 (multi-step reasoning) | `query` (필수), `session_id` |
 | `reset_session` | 세션 컨텍스트 초기화 | `session_id` (필수) |
 | `list_sessions` | 활성 세션 목록 조회 | - |
 
@@ -378,6 +387,111 @@ pytest genai-fundamentals/tests/test_router.py -v -k "integration"
 service = GraphRAGService(enable_routing=False)
 ```
 
+## ReAct Agent
+
+ReAct (Reasoning + Acting) Agent는 LangGraph를 사용하여 multi-step reasoning을 수행합니다.
+Query Router가 단일 분류로 파이프라인을 선택하는 반면, Agent는 여러 도구를 조합하여 복잡한 쿼리를 처리합니다.
+
+### 아키텍처
+
+```
+사용자 쿼리
+    ↓
+┌─────────────────────────────────────────────────────┐
+│                  ReAct Agent                         │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐         │
+│  │  Think  │ → │   Act   │ → │ Observe │ → (반복)  │
+│  └─────────┘    └─────────┘    └─────────┘         │
+│       ↓                                              │
+│  [도구 선택]                                         │
+│  - cypher_query: 엔티티/관계 조회                   │
+│  - vector_search: 시맨틱 검색                       │
+│  - hybrid_search: 복합 검색                         │
+│  - get_schema: DB 스키마 조회                       │
+└─────────────────────────────────────────────────────┘
+    ↓
+최종 답변
+```
+
+### Query Router vs ReAct Agent
+
+| 특성 | Query Router (`/query`) | ReAct Agent (`/agent/query`) |
+|------|------------------------|------------------------------|
+| 추론 방식 | 단일 분류 | Multi-step reasoning |
+| 도구 사용 | 1개 파이프라인 | 여러 도구 조합 가능 |
+| 적합한 쿼리 | 단순 질문 | 복잡한 질문 |
+| 응답 속도 | 빠름 | 상대적으로 느림 |
+| 토큰 비용 | 낮음 | 높음 |
+
+### 사용 예시
+
+```bash
+# REST API - ReAct Agent 사용
+curl -X POST "http://localhost:8000/agent/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "톰 행크스와 비슷한 배우가 출연한 SF 영화는?", "stream": false}'
+```
+
+### Agent Request Format
+```json
+{
+  "query": "톰 행크스와 비슷한 배우가 출연한 SF 영화는?",
+  "session_id": "user123",      // Optional (default: "default")
+  "stream": false               // Optional (default: false)
+}
+```
+
+### Agent Response Format (Non-streaming)
+```json
+{
+  "answer": "Based on my search...",
+  "thoughts": ["First, I'll find Tom Hanks movies...", "Now searching for similar actors..."],
+  "tool_calls": [
+    {"name": "cypher_query", "args": {"query": "Tom Hanks movies"}},
+    {"name": "vector_search", "args": {"query": "sci-fi movies"}}
+  ],
+  "tool_results": [...],
+  "iterations": 3
+}
+```
+
+### Streaming Response (SSE)
+When `stream: true`, response is Server-Sent Events:
+```
+data: {"type": "token", "content": "Let me "}
+data: {"type": "tool_call", "tool": "cypher_query", "input": {...}}
+data: {"type": "tool_result", "result": "..."}
+data: {"type": "token", "content": "Based on..."}
+data: {"type": "done", "final_answer": "..."}
+```
+
+### 테스트
+
+```bash
+# Agent 테스트 실행
+pytest genai-fundamentals/tests/test_agent.py -v
+
+# Mock 테스트만 (API 호출 없음)
+pytest genai-fundamentals/tests/test_agent.py -v -k "mock"
+
+# 통합 테스트 (OpenAI API 및 Neo4j 필요)
+pytest genai-fundamentals/tests/test_agent.py -v -k "integration"
+```
+
+### 주요 파일
+
+| 파일 | 설명 |
+|------|------|
+| `api/agent/graph.py` | LangGraph StateGraph 정의 (Reason → Tool → Loop) |
+| `api/agent/state.py` | AgentState TypedDict |
+| `api/agent/tools.py` | cypher_query, vector_search, hybrid_search, get_schema |
+| `api/agent/prompts.py` | ReAct 시스템 프롬프트 |
+| `api/agent/service.py` | AgentService 클래스 (통합 인터페이스) |
+
+### 무한 루프 방지
+
+`MAX_ITERATIONS = 10`으로 설정되어 있어 최대 10번의 reasoning loop 후 강제 종료됩니다.
+
 ## Configuration
 
 Environment variables required in `.env` file (see `.env.example`):
@@ -391,6 +505,7 @@ Environment variables required in `.env` file (see `.env.example`):
 Key packages in `requirements.txt`:
 - `neo4j-graphrag[openai]` - Neo4j GraphRAG library
 - `langchain`, `langchain-openai`, `langchain-neo4j` - LangChain framework
+- `langgraph` - LangGraph for ReAct Agent
 - `fastapi`, `uvicorn` - REST API server
 - `mcp` - Model Context Protocol server
 - `streamlit`, `chainlit` - Chat client UI frameworks

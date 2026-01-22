@@ -353,14 +353,25 @@ class GraphRAGService:
         """
         return list(self._session_histories.keys())
 
+    def get_schema(self) -> str:
+        """
+        Neo4j 데이터베이스 스키마 반환
+
+        Agent가 데이터베이스 구조를 이해하는 데 사용합니다.
+
+        Returns:
+            데이터베이스 스키마 문자열
+        """
+        return self._graph.schema
+
     # -------------------------------------------------------------------------
     # RAG 파이프라인 실행 메서드
     # -------------------------------------------------------------------------
 
-    def _execute_cypher_rag(
+    def execute_cypher_rag(
         self,
         query_text: str,
-        route_decision: RouteDecision
+        route_decision: Optional[RouteDecision] = None
     ) -> QueryResult:
         """
         Cypher RAG 파이프라인 실행 (Text-to-Cypher)
@@ -375,18 +386,21 @@ class GraphRAGService:
         result = self._chain.invoke({"query": query_text})
         cypher, context = self._extract_intermediate_steps(result)
 
+        route_value = route_decision.route.value if route_decision else "cypher"
+        route_reasoning = route_decision.reasoning if route_decision else ""
+
         return QueryResult(
             answer=result["result"],
             cypher=cypher,
             context=context,
-            route=route_decision.route.value,
-            route_reasoning=route_decision.reasoning
+            route=route_value,
+            route_reasoning=route_reasoning
         )
 
-    def _execute_vector_rag(
+    def execute_vector_rag(
         self,
         query_text: str,
-        route_decision: RouteDecision,
+        route_decision: Optional[RouteDecision] = None,
         top_k: int = 5
     ) -> QueryResult:
         """
@@ -419,18 +433,21 @@ class GraphRAGService:
             "question": query_text
         })
 
+        route_value = route_decision.route.value if route_decision else "vector"
+        route_reasoning = route_decision.reasoning if route_decision else ""
+
         return QueryResult(
             answer=answer,
             cypher="",  # Vector RAG는 Cypher를 사용하지 않음
             context=[str(doc.metadata) for doc in docs],
-            route=route_decision.route.value,
-            route_reasoning=route_decision.reasoning
+            route=route_value,
+            route_reasoning=route_reasoning
         )
 
-    def _execute_hybrid_rag(
+    def execute_hybrid_rag(
         self,
         query_text: str,
-        route_decision: RouteDecision,
+        route_decision: Optional[RouteDecision] = None,
         top_k: int = 3
     ) -> QueryResult:
         """
@@ -476,18 +493,21 @@ class GraphRAGService:
             f"[Cypher] {c}" for c in cypher_context
         ]
 
+        route_value = route_decision.route.value if route_decision else "hybrid"
+        route_reasoning = route_decision.reasoning if route_decision else ""
+
         return QueryResult(
             answer=answer,
             cypher=cypher,
             context=combined_context,
-            route=route_decision.route.value,
-            route_reasoning=route_decision.reasoning
+            route=route_value,
+            route_reasoning=route_reasoning
         )
 
-    def _execute_llm_only(
+    def execute_llm_only(
         self,
         query_text: str,
-        route_decision: RouteDecision
+        route_decision: Optional[RouteDecision] = None
     ) -> QueryResult:
         """
         LLM Only 파이프라인 실행 (DB 조회 없이 직접 응답)
@@ -501,12 +521,15 @@ class GraphRAGService:
         """
         answer = self._llm_only_chain.invoke({"question": query_text})
 
+        route_value = route_decision.route.value if route_decision else "llm_only"
+        route_reasoning = route_decision.reasoning if route_decision else ""
+
         return QueryResult(
             answer=answer,
             cypher="",  # LLM Only는 Cypher 없음
             context=[],  # 컨텍스트 없음
-            route=route_decision.route.value,
-            route_reasoning=route_decision.reasoning
+            route=route_value,
+            route_reasoning=route_reasoning
         )
 
     # -------------------------------------------------------------------------
@@ -593,13 +616,13 @@ class GraphRAGService:
 
         # 라우트별 RAG 파이프라인 실행
         if route_decision.route == RouteType.CYPHER:
-            query_result = self._execute_cypher_rag(query_text, route_decision)
+            query_result = self.execute_cypher_rag(query_text, route_decision)
         elif route_decision.route == RouteType.VECTOR:
-            query_result = self._execute_vector_rag(query_text, route_decision)
+            query_result = self.execute_vector_rag(query_text, route_decision)
         elif route_decision.route == RouteType.HYBRID:
-            query_result = self._execute_hybrid_rag(query_text, route_decision)
+            query_result = self.execute_hybrid_rag(query_text, route_decision)
         else:  # LLM_ONLY
-            query_result = self._execute_llm_only(query_text, route_decision)
+            query_result = self.execute_llm_only(query_text, route_decision)
 
         # 히스토리에 저장
         history.add_user_message(query_text)

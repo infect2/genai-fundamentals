@@ -34,8 +34,8 @@ MANIFEST.files/
 # SSL certificates
 certs/
 
-# Chainlit auto-generated files
-.chainlit/
+# Chainlit auto-generated files (translations 등 제외, config.toml은 추적)
+.chainlit/*
 !.chainlit/config.toml
 
 # Claude local config

@@ -365,7 +365,9 @@ async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Mess
                             await msg.stream_token(token)  # 화면에 실시간 표시
 
                         elif data.get('type') == 'done':
-                            # 완료 이벤트: 스트리밍 종료
+                            # 완료 이벤트: 스트리밍 종료 (토큰 사용량 포함)
+                            if 'token_usage' in data:
+                                metadata['token_usage'] = data['token_usage']
                             break
 
                         elif data.get('type') == 'error':
@@ -533,13 +535,14 @@ async def on_message(message: cl.Message):
         await msg.update()  # 메시지 내용 업데이트
 
     # -------------------------------------------------------------------------
-    # 메타데이터 표시 (Cypher 쿼리, Context)
+    # 메타데이터 표시 (Cypher 쿼리, Context, Token Usage)
     # -------------------------------------------------------------------------
     cypher = result.get("cypher", "")
     context = result.get("context", [])
+    token_usage = result.get("token_usage")
 
-    # Cypher 쿼리나 Context가 있는 경우에만 상세 정보 표시
-    if cypher or context:
+    # Cypher 쿼리, Context, 또는 Token Usage가 있는 경우 상세 정보 표시
+    if cypher or context or token_usage:
         # Chainlit 2.x에서는 마크다운으로 직접 표시
         details_content = "🔍 **상세 정보**\n\n"
 
@@ -549,7 +552,19 @@ async def on_message(message: cl.Message):
         if context and len(context) > 0:
             # Context 데이터를 JSON 형식으로 포맷팅 (상위 5개만)
             context_str = json.dumps(context[:5], indent=2, ensure_ascii=False)
-            details_content += "**Context (Top 5):**\n```json\n" + context_str + "\n```"
+            details_content += "**Context (Top 5):**\n```json\n" + context_str + "\n```\n\n"
+
+        if token_usage:
+            total = token_usage.get("total_tokens", 0)
+            prompt = token_usage.get("prompt_tokens", 0)
+            completion = token_usage.get("completion_tokens", 0)
+            cost = token_usage.get("total_cost", 0.0)
+            details_content += (
+                f"**Token Usage:**\n"
+                f"| Prompt | Completion | Total | Cost |\n"
+                f"|--------|------------|-------|------|\n"
+                f"| {prompt:,} | {completion:,} | {total:,} | ${cost:.6f} |"
+            )
 
         await cl.Message(
             content=details_content,

@@ -154,15 +154,17 @@ Answer:"""
 # LLM Only 프롬프트 템플릿
 # =============================================================================
 
-LLM_ONLY_TEMPLATE = """You are a helpful movie knowledge assistant.
+LLM_ONLY_TEMPLATE = """You are a helpful general-purpose assistant.
 
 User Question: {question}
 
 Instructions:
-- Answer the question based on your general knowledge about movies
+- Answer the question based on your general knowledge
+- If the question is about movies, provide detailed movie-related information
+- If the question is about other topics (math, science, coding, etc.), answer helpfully
 - If the question is a greeting or casual conversation, respond appropriately
-- If you don't know the answer, say so honestly
 - Keep responses concise and helpful
+- Respond in the same language as the user's question
 
 Answer:"""
 

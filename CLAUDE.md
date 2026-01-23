@@ -264,7 +264,13 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
   "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
   "context": ["{'a.name': 'Hugo Weaving'}", ...],
   "route": "cypher",
-  "route_reasoning": "특정 영화 제목으로 배우 조회"
+  "route_reasoning": "특정 영화 제목으로 배우 조회",
+  "token_usage": {
+    "total_tokens": 641,
+    "prompt_tokens": 590,
+    "completion_tokens": 51,
+    "total_cost": 0.001985
+  }
 }
 ```
 
@@ -275,7 +281,7 @@ data: {"type": "metadata", "cypher": "...", "context": [...], "route": "cypher",
 data: {"type": "token", "content": "Hugo "}
 data: {"type": "token", "content": "Weaving"}
 ...
-data: {"type": "done"}
+data: {"type": "done", "token_usage": {"total_tokens": 641, "prompt_tokens": 590, "completion_tokens": 51, "total_cost": 0.001985}}
 ```
 
 ## MCP Server
@@ -300,7 +306,13 @@ MCP (Model Context Protocol) 서버는 REST API와 동일한 비즈니스 로직
 {
   "answer": "Hugo Weaving, Laurence Fishburne...",
   "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
-  "context": ["{'a.name': 'Hugo Weaving'}", ...]
+  "context": ["{'a.name': 'Hugo Weaving'}", ...],
+  "token_usage": {
+    "total_tokens": 641,
+    "prompt_tokens": 590,
+    "completion_tokens": 51,
+    "total_cost": 0.001985
+  }
 }
 ```
 
@@ -451,7 +463,13 @@ curl -X POST "http://localhost:8000/agent/query" \
     {"name": "vector_search", "args": {"query": "sci-fi movies"}}
   ],
   "tool_results": [...],
-  "iterations": 3
+  "iterations": 3,
+  "token_usage": {
+    "total_tokens": 2500,
+    "prompt_tokens": 2100,
+    "completion_tokens": 400,
+    "total_cost": 0.0125
+  }
 }
 ```
 
@@ -462,7 +480,7 @@ data: {"type": "token", "content": "Let me "}
 data: {"type": "tool_call", "tool": "cypher_query", "input": {...}}
 data: {"type": "tool_result", "result": "..."}
 data: {"type": "token", "content": "Based on..."}
-data: {"type": "done", "final_answer": "..."}
+data: {"type": "done", "final_answer": "...", "token_usage": {"total_tokens": 2500, "prompt_tokens": 2100, "completion_tokens": 400, "total_cost": 0.0125}}
 ```
 
 ### 테스트
@@ -491,6 +509,43 @@ pytest genai-fundamentals/tests/test_agent.py -v -k "integration"
 ### 무한 루프 방지
 
 `MAX_ITERATIONS = 10`으로 설정되어 있어 최대 10번의 reasoning loop 후 강제 종료됩니다.
+
+## Token Usage Tracking
+
+모든 쿼리 파이프라인(Router, RAG, Agent)에서 발생하는 LLM 토큰 사용량을 추적합니다.
+
+### 구현 방식
+
+LangChain의 `get_openai_callback()` 컨텍스트 매니저를 사용하여 블록 내 모든 OpenAI API 호출의 토큰 사용량을 자동 집계합니다.
+
+### 데이터 구조
+
+```python
+@dataclass
+class TokenUsage:
+    total_tokens: int = 0       # 총 토큰 수
+    prompt_tokens: int = 0      # 프롬프트 토큰 수
+    completion_tokens: int = 0  # 완성 토큰 수
+    total_cost: float = 0.0     # 총 비용 (USD)
+```
+
+### 적용 범위
+
+| 엔드포인트 | 추적 대상 |
+|-----------|----------|
+| `POST /query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only) |
+| `POST /agent/query` | Agent reasoning + Tool 내 LLM 호출 |
+| MCP `query` | Router 분류 + RAG 파이프라인 |
+| MCP `agent_query` | Agent reasoning + Tool 내 LLM 호출 |
+
+### 관련 파일
+
+| 파일 | 역할 |
+|------|------|
+| `api/service.py` | `TokenUsage` 데이터클래스 정의, `query()`에 callback 래핑 |
+| `api/agent/service.py` | `query()`/`query_async()`/`query_stream()`에 callback 래핑 |
+| `api/server.py` | `TokenUsageResponse` 응답 모델 |
+| `api/mcp_server.py` | 응답 JSON에 token_usage 포함 |
 
 ## Configuration
 

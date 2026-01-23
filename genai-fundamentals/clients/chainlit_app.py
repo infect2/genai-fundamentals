@@ -110,6 +110,10 @@ async def on_chat_start():
     #                False이면 전체 응답이 완성된 후 한 번에 표시
     cl.user_session.set("use_streaming", True)
 
+    # restore_history: True이면 로그인 시 이전 대화 이력을 Neo4j에서 복원
+    #                  False이면 항상 빈 채팅으로 시작
+    cl.user_session.set("restore_history", True)
+
     # -------------------------------------------------------------------------
     # Chat Settings UI 구성
     # -------------------------------------------------------------------------
@@ -130,6 +134,13 @@ async def on_chat_start():
                 label="📡 스트리밍 모드",      # UI에 표시되는 레이블
                 initial=True,                 # 초기값 (기본적으로 스트리밍 활성화)
                 description="응답을 실시간으로 스트리밍합니다."
+            ),
+            # 대화 이력 복원 토글 스위치
+            Switch(
+                id="restore_history",         # 설정 값의 키
+                label="📜 대화 이력 복원",     # UI에 표시되는 레이블
+                initial=True,                 # 초기값 (기본적으로 복원 활성화)
+                description="로그인 시 이전 대화 이력을 복원합니다."
             ),
         ]
     ).send()  # .send()를 호출해야 UI가 실제로 렌더링됨
@@ -180,23 +191,24 @@ async def on_chat_start():
         await cl.Message(content=f"❌ 오류가 발생했습니다: {str(e)}").send()
 
     # -------------------------------------------------------------------------
-    # 이전 대화 이력 복원 (Neo4j에서 조회)
+    # 이전 대화 이력 복원 (Neo4j에서 조회, 설정에 따라)
     # -------------------------------------------------------------------------
-    try:
-        history_response = requests.get(
-            f"{API_BASE_URL}/history/{session_id}", timeout=10
-        )
-        if history_response.status_code == 200:
-            messages = history_response.json().get("messages", [])
-            if messages:
-                await cl.Message(content="📜 **이전 대화 이력을 복원합니다...**").send()
-                for msg in messages:
-                    if msg["role"] == "human":
-                        await cl.Message(content=msg["content"], author="User", type="user_message").send()
-                    elif msg["role"] == "ai":
-                        await cl.Message(content=msg["content"]).send()
-    except Exception:
-        pass
+    if cl.user_session.get("restore_history", True):
+        try:
+            history_response = requests.get(
+                f"{API_BASE_URL}/history/{session_id}", timeout=10
+            )
+            if history_response.status_code == 200:
+                messages = history_response.json().get("messages", [])
+                if messages:
+                    await cl.Message(content="📜 **이전 대화 이력을 복원합니다...**").send()
+                    for msg in messages:
+                        if msg["role"] == "human":
+                            await cl.Message(content=msg["content"], author="User", type="user_message").send()
+                        elif msg["role"] == "ai":
+                            await cl.Message(content=msg["content"]).send()
+        except Exception:
+            pass
 
 # -----------------------------------------------------------------------------
 # Chat Settings UI 변경 이벤트 핸들러
@@ -220,16 +232,19 @@ async def on_settings_update(settings):
     # 세션 스토리지에 새로운 설정값 저장
     cl.user_session.set("reset_context", settings.get("reset_context", False))
     cl.user_session.set("use_streaming", settings.get("use_streaming", True))
+    cl.user_session.set("restore_history", settings.get("restore_history", True))
 
     # 사용자에게 표시할 상태 문자열 생성
     reset_status = "✅ 활성화" if settings.get("reset_context") else "❌ 비활성화"
     stream_status = "✅ 활성화" if settings.get("use_streaming") else "❌ 비활성화"
+    history_status = "✅ 활성화" if settings.get("restore_history") else "❌ 비활성화"
 
     # 설정 변경 확인 메시지 표시
     await cl.Message(
         content=f"⚙️ **설정이 변경되었습니다**\n\n"
                 f"- 컨텍스트 리셋: {reset_status}\n"
-                f"- 스트리밍 모드: {stream_status}"
+                f"- 스트리밍 모드: {stream_status}\n"
+                f"- 대화 이력 복원: {history_status}"
     ).send()
 
 # -----------------------------------------------------------------------------
@@ -309,13 +324,15 @@ async def show_settings(action: cl.Action):
     session_id = cl.user_session.get("session_id")
     reset_context = cl.user_session.get("reset_context", False)
     use_streaming = cl.user_session.get("use_streaming", True)
+    restore_history = cl.user_session.get("restore_history", True)
 
     # 설정 정보 메시지와 함께 액션 버튼들 표시
     await cl.Message(
         content=f"⚙️ **현재 설정**\n\n"
                 f"- 세션 ID: `{session_id}`\n"
                 f"- 컨텍스트 리셋: {'✅ 활성화' if reset_context else '❌ 비활성화'}\n"
-                f"- 스트리밍 모드: {'✅ 활성화' if use_streaming else '❌ 비활성화'}",
+                f"- 스트리밍 모드: {'✅ 활성화' if use_streaming else '❌ 비활성화'}\n"
+                f"- 대화 이력 복원: {'✅ 활성화' if restore_history else '❌ 비활성화'}",
         # actions 파라미터에 버튼 목록을 전달하면 메시지 하단에 버튼이 렌더링됨
         actions=[
             # name: action_callback 데코레이터의 이름과 일치해야 함

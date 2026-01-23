@@ -78,6 +78,29 @@ chainlit run genai-fundamentals/clients/chainlit_app.py --port 8502
 | Detail info (Cypher) | ✅ Expander | ✅ Text Element |
 | Commands | ❌ | ✅ `/settings`, `/reset`, `/help` |
 | Action buttons | ❌ | ✅ Inline buttons |
+| Google OAuth | ❌ | ✅ `@cl.oauth_callback` |
+
+### Chainlit Google OAuth 설정
+
+Chainlit 클라이언트는 Google OAuth를 통한 인증을 지원합니다.
+
+**사전 준비:**
+1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. OAuth 2.0 Client ID 생성 (Web application)
+3. Authorized redirect URI: `http://localhost:8502/auth/oauth/google/callback`
+
+**환경변수 설정 (`.env`):**
+```bash
+OAUTH_GOOGLE_CLIENT_ID="your-client-id"
+OAUTH_GOOGLE_CLIENT_SECRET="your-client-secret"
+CHAINLIT_AUTH_SECRET="your-secret"   # chainlit create-secret 으로 생성
+```
+
+**실행:**
+```bash
+chainlit run genai-fundamentals/clients/chainlit_app.py --port 8502
+# → http://localhost:8502 접속 시 Google 로그인 화면 표시
+```
 
 ### MCP Server
 

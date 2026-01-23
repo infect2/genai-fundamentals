@@ -37,6 +37,44 @@ from typing import Optional              # 타입 힌트
 API_BASE_URL = "http://localhost:8000"
 
 # -----------------------------------------------------------------------------
+# Google OAuth 콜백
+# -----------------------------------------------------------------------------
+@cl.oauth_callback
+def oauth_callback(
+    provider_id: str,
+    token: str,
+    raw_user_data: dict[str, str],
+    default_user: cl.User,
+) -> Optional[cl.User]:
+    """
+    Google OAuth 인증 콜백입니다.
+
+    사용자가 Google 로그인을 완료하면 Chainlit이 이 함수를 호출합니다.
+    인증된 사용자 정보를 Chainlit User 객체로 반환합니다.
+
+    Args:
+        provider_id: OAuth 제공자 식별자 (예: "google")
+        token: OAuth 액세스 토큰
+        raw_user_data: Google에서 반환한 사용자 정보 딕셔너리
+        default_user: Chainlit이 기본 생성한 User 객체
+
+    Returns:
+        cl.User: 인증된 사용자 객체 (None 반환 시 인증 거부)
+    """
+    if provider_id == "google":
+        return cl.User(
+            identifier=raw_user_data.get("email", ""),
+            display_name=raw_user_data.get("name"),
+            metadata={
+                "email": raw_user_data.get("email"),
+                "picture": raw_user_data.get("picture"),
+                "provider": "google",
+            },
+        )
+    return None
+
+
+# -----------------------------------------------------------------------------
 # 채팅 시작 이벤트 핸들러
 # -----------------------------------------------------------------------------
 @cl.on_chat_start
@@ -100,6 +138,12 @@ async def on_chat_start():
     # -------------------------------------------------------------------------
     # API 서버 연결 확인 및 환영 메시지 표시
     # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # 인증된 사용자 정보 조회
+    # -------------------------------------------------------------------------
+    user = cl.user_session.get("user")
+    display_name = user.display_name or user.identifier if user else "Guest"
+
     try:
         # API 서버의 루트 엔드포인트(/)에 GET 요청을 보내 연결 상태 확인
         # timeout=5: 5초 내에 응답이 없으면 타임아웃 예외 발생
@@ -110,7 +154,7 @@ async def on_chat_start():
             data = response.json()
             version = data.get("version", "N/A")  # API 버전 (없으면 "N/A")
             await cl.Message(
-                content=f"🎬 **GraphRAG Movie Chat**에 오신 것을 환영합니다!\n\n"
+                content=f"🎬 **GraphRAG Movie Chat**에 오신 것을 환영합니다, {display_name}님!\n\n"
                         f"📡 API 서버 연결됨 (v{version})\n"
                         f"🔑 세션 ID: `{session_id}`\n\n"
                         f"영화에 대해 질문해보세요!"

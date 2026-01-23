@@ -243,7 +243,7 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 **LangChain GraphRAG Pipeline (api/service.py):**
 1. Connect to Neo4j with `Neo4jGraph()`
 2. Create LLM (`ChatOpenAI`)
-3. **Query Router로 쿼리 분류 (cypher/vector/hybrid/llm_only)**
+3. **Query Router로 쿼리 분류 (cypher/vector/hybrid/llm_only/memory)**
 4. 분류된 타입에 따라 적합한 RAG 파이프라인 선택
 5. Execute queries with routing-based pipeline selection
 
@@ -276,7 +276,7 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
   "session_id": "user123",      // Optional (default: "default")
   "reset_context": false,       // Optional (default: false)
   "stream": false,              // Optional (default: false)
-  "force_route": null           // Optional: "cypher", "vector", "hybrid", "llm_only"
+  "force_route": null           // Optional: "cypher", "vector", "hybrid", "llm_only", "memory"
 }
 ```
 
@@ -371,10 +371,10 @@ Query Router는 쿼리 유형에 따라 적합한 RAG 파이프라인을 자동 
 │  Query Router   │ ← LLM 기반 쿼리 분류
 └────────┬────────┘
          ↓
-    ┌────┴────┬─────────┬─────────┐
-    ↓         ↓         ↓         ↓
- cypher    vector    hybrid   llm_only
-  RAG       RAG       RAG     (직접응답)
+    ┌────┴────┬─────────┬─────────┬─────────┐
+    ↓         ↓         ↓         ↓         ↓
+ cypher    vector    hybrid   llm_only   memory
+  RAG       RAG       RAG     (직접응답)  (저장/조회)
 ```
 
 ### 라우트 타입
@@ -385,6 +385,7 @@ Query Router는 쿼리 유형에 따라 적합한 RAG 파이프라인을 자동 
 | `vector` | 시맨틱 검색 (Vector similarity) | "슬픈 영화 추천해줘" |
 | `hybrid` | 복합 쿼리 (Vector + Cypher) | "90년대 액션 영화 중 평점 높은 것" |
 | `llm_only` | 일반 질문 (DB 조회 없음) | "영화란 무엇인가요?" |
+| `memory` | 사용자 정보 저장/조회 (Neo4j) | "내 차번호는 59구8426이야 기억해", "내 차번호 뭐지?" |
 
 ### 사용 예시
 
@@ -556,9 +557,9 @@ class TokenUsage:
 
 | 엔드포인트 | 추적 대상 |
 |-----------|----------|
-| `POST /query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only) |
+| `POST /query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only/memory) |
 | `POST /agent/query` | Agent reasoning + Tool 내 LLM 호출 |
-| MCP `query` | Router 분류 + RAG 파이프라인 |
+| MCP `query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only/memory) |
 | MCP `agent_query` | Agent reasoning + Tool 내 LLM 호출 |
 
 ### 관련 파일
@@ -606,6 +607,7 @@ The Neo4j database contains movie data with the following schema:
 - `Director` (name, born)
 - `Genre` (name)
 - `User` (name, userId)
+- `UserMemory` (session_id, key, value, updated_at)
 
 **Relationships:**
 - `(Actor)-[:ACTED_IN]->(Movie)`

@@ -170,6 +170,27 @@ Answer:"""
 
 
 # =============================================================================
+# 메모리 추출 프롬프트 템플릿
+# =============================================================================
+
+MEMORY_EXTRACT_TEMPLATE = """사용자의 메시지에서 저장할 정보를 추출하세요.
+
+메시지: {message}
+
+JSON 형식으로 응답하세요:
+{{"action": "store" 또는 "recall", "key": "정보 종류 (예: 차번호, 이메일, 전화번호)", "value": "저장할 값 (store인 경우만)"}}
+
+store 예시:
+- "내 차번호는 59구8426이야" → {{"action": "store", "key": "차번호", "value": "59구8426"}}
+- "내 이메일은 test@email.com이야 기억해" → {{"action": "store", "key": "이메일", "value": "test@email.com"}}
+
+recall 예시:
+- "내 차번호 뭐지?" → {{"action": "recall", "key": "차번호", "value": ""}}
+- "내 이메일 알려줘" → {{"action": "recall", "key": "이메일", "value": ""}}
+"""
+
+
+# =============================================================================
 # 스트리밍 콜백 핸들러
 # =============================================================================
 
@@ -227,6 +248,7 @@ class GraphRAGService:
 
     _CHAT_SESSION_NODE_LABEL = "ChatSession"
     _CHAT_HISTORY_WINDOW = 50
+    _USER_MEMORY_NODE_LABEL = "UserMemory"
 
     def __init__(
         self,
@@ -409,6 +431,119 @@ class GraphRAGService:
             데이터베이스 스키마 문자열
         """
         return self._graph.schema
+
+    # -------------------------------------------------------------------------
+    # 메모리 저장/조회 메서드
+    # -------------------------------------------------------------------------
+
+    def store_user_memory(self, session_id: str, key: str, value: str) -> None:
+        """
+        사용자 정보를 Neo4j에 저장 (MERGE로 upsert)
+
+        Args:
+            session_id: 세션 식별자
+            key: 정보 종류 (예: 차번호, 이메일)
+            value: 저장할 값
+        """
+        self._graph.query(
+            f"""
+            MERGE (m:`{self._USER_MEMORY_NODE_LABEL}` {{session_id: $session_id, key: $key}})
+            SET m.value = $value, m.updated_at = datetime()
+            """,
+            params={"session_id": session_id, "key": key, "value": value}
+        )
+
+    def get_user_memory(self, session_id: str, key: str) -> Optional[str]:
+        """
+        저장된 사용자 정보 조회
+
+        Args:
+            session_id: 세션 식별자
+            key: 정보 종류
+
+        Returns:
+            저장된 값 또는 None
+        """
+        result = self._graph.query(
+            f"""
+            MATCH (m:`{self._USER_MEMORY_NODE_LABEL}` {{session_id: $session_id, key: $key}})
+            RETURN m.value AS value
+            """,
+            params={"session_id": session_id, "key": key}
+        )
+        return result[0]["value"] if result else None
+
+    def get_all_user_memories(self, session_id: str) -> List[dict]:
+        """
+        세션의 모든 저장된 정보 조회
+
+        Args:
+            session_id: 세션 식별자
+
+        Returns:
+            [{"key": "...", "value": "..."}, ...] 형태의 리스트
+        """
+        result = self._graph.query(
+            f"""
+            MATCH (m:`{self._USER_MEMORY_NODE_LABEL}` {{session_id: $session_id}})
+            RETURN m.key AS key, m.value AS value
+            ORDER BY m.key
+            """,
+            params={"session_id": session_id}
+        )
+        return [{"key": r["key"], "value": r["value"]} for r in result]
+
+    def execute_memory(
+        self,
+        query_text: str,
+        session_id: str,
+        route_decision: RouteDecision
+    ) -> QueryResult:
+        """
+        MEMORY 라우트 실행 (사용자 정보 저장/조회)
+
+        LLM으로 사용자 메시지에서 action/key/value를 추출한 후
+        store면 Neo4j에 저장, recall이면 조회하여 응답합니다.
+
+        Args:
+            query_text: 사용자 메시지
+            session_id: 세션 식별자
+            route_decision: 라우팅 결정 정보
+
+        Returns:
+            QueryResult 객체
+        """
+        extract_result = self._llm.invoke(
+            MEMORY_EXTRACT_TEMPLATE.format(message=query_text)
+        )
+        # LLM이 markdown 코드블록으로 감싸는 경우 처리
+        content = extract_result.content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1]  # 첫 줄(```json) 제거
+            content = content.rsplit("```", 1)[0]  # 마지막 ``` 제거
+        parsed = json.loads(content.strip())
+
+        action = parsed.get("action", "recall")
+        key = parsed.get("key", "")
+        value = parsed.get("value", "")
+
+        if action == "store" and key and value:
+            self.store_user_memory(session_id, key, value)
+            answer = f"'{key}' 정보를 기억했습니다: {value}"
+        else:
+            stored_value = self.get_user_memory(session_id, key)
+            if stored_value:
+                answer = f"{key}은(는) {stored_value}입니다."
+            else:
+                answer = f"저장된 '{key}' 정보가 없습니다."
+
+        return QueryResult(
+            answer=answer,
+            cypher="",
+            context=[],
+            route=route_decision.route.value,
+            route_reasoning=route_decision.reasoning
+        )
 
     # -------------------------------------------------------------------------
     # RAG 파이프라인 실행 메서드
@@ -643,7 +778,8 @@ class GraphRAGService:
                     "cypher": RouteType.CYPHER,
                     "vector": RouteType.VECTOR,
                     "hybrid": RouteType.HYBRID,
-                    "llm_only": RouteType.LLM_ONLY
+                    "llm_only": RouteType.LLM_ONLY,
+                    "memory": RouteType.MEMORY
                 }
                 route_decision = RouteDecision(
                     route=route_map.get(force_route, RouteType.CYPHER),
@@ -668,6 +804,8 @@ class GraphRAGService:
                 query_result = self.execute_vector_rag(query_text, route_decision)
             elif route_decision.route == RouteType.HYBRID:
                 query_result = self.execute_hybrid_rag(query_text, route_decision)
+            elif route_decision.route == RouteType.MEMORY:
+                query_result = self.execute_memory(query_text, session_id, route_decision)
             else:  # LLM_ONLY
                 query_result = self.execute_llm_only(query_text, route_decision)
 

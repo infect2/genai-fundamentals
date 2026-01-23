@@ -25,6 +25,7 @@ class RouteType(Enum):
     VECTOR = "vector"      # Vector search (시맨틱/유사도 검색)
     HYBRID = "hybrid"      # Vector + Cypher (복합 쿼리)
     LLM_ONLY = "llm_only"  # LLM 직접 응답 (DB 불필요)
+    MEMORY = "memory"      # 사용자 정보 저장/조회
 
 
 @dataclass
@@ -73,13 +74,18 @@ CLASSIFICATION_PROMPT = """당신은 영화 데이터베이스 쿼리 분류 전
    - DB에 없는 정보 요청
    - 예시: "영화란 무엇인가요?", "안녕하세요", "감사합니다"
 
+5. **memory**: 사용자가 개인 정보를 저장하거나 조회하려는 쿼리
+   - 정보를 기억/저장해달라는 요청
+   - 이전에 저장한 정보를 물어보는 요청
+   - 예시: "내 차번호는 59구8426이야 기억해", "내 차번호 뭐지?", "내 이메일 알려줘"
+
 ## 쿼리 분석
 
 Query: {query}
 
 ## 응답 형식 (정확히 이 형식으로 응답하세요)
 
-route: [cypher|vector|hybrid|llm_only]
+route: [cypher|vector|hybrid|llm_only|memory]
 confidence: [0.0-1.0]
 reasoning: [한 문장으로 이유 설명]"""
 
@@ -149,7 +155,8 @@ class QueryRouter:
             "cypher": RouteType.CYPHER,
             "vector": RouteType.VECTOR,
             "hybrid": RouteType.HYBRID,
-            "llm_only": RouteType.LLM_ONLY
+            "llm_only": RouteType.LLM_ONLY,
+            "memory": RouteType.MEMORY
         }
         route = route_map.get(route_str, RouteType.CYPHER)
 

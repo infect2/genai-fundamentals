@@ -187,6 +187,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             "cypher": result.cypher,
             "context": result.context
         }
+        if result.token_usage:
+            response["token_usage"] = {
+                "total_tokens": result.token_usage.total_tokens,
+                "prompt_tokens": result.token_usage.prompt_tokens,
+                "completion_tokens": result.token_usage.completion_tokens,
+                "total_cost": result.token_usage.total_cost
+            }
 
         return [TextContent(
             type="text",
@@ -238,6 +245,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             "tool_results": result.tool_results,
             "iterations": result.iterations
         }
+        if result.token_usage:
+            response["token_usage"] = {
+                "total_tokens": result.token_usage.total_tokens,
+                "prompt_tokens": result.token_usage.prompt_tokens,
+                "completion_tokens": result.token_usage.completion_tokens,
+                "total_cost": result.token_usage.total_cost
+            }
 
         return [TextContent(
             type="text",

@@ -26,6 +26,7 @@ from langchain_neo4j import Neo4jGraph, GraphCypherQAChain, Neo4jVector
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_community.callbacks import get_openai_callback
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
@@ -35,6 +36,23 @@ from .router import QueryRouter, RouteType, RouteDecision
 # =============================================================================
 # 데이터 클래스 정의
 # =============================================================================
+
+@dataclass
+class TokenUsage:
+    """
+    LLM 토큰 사용량을 담는 데이터 클래스
+
+    Attributes:
+        total_tokens: 총 토큰 수
+        prompt_tokens: 프롬프트 토큰 수
+        completion_tokens: 완성 토큰 수
+        total_cost: 총 비용 (USD)
+    """
+    total_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_cost: float = 0.0
+
 
 @dataclass
 class QueryResult:
@@ -47,12 +65,14 @@ class QueryResult:
         context: Neo4j에서 가져온 원본 데이터 리스트
         route: 사용된 라우트 타입 (cypher, vector, hybrid, llm_only)
         route_reasoning: 라우팅 결정 이유
+        token_usage: LLM 토큰 사용량
     """
     answer: str
     cypher: str
     context: List[str]
     route: str = ""
     route_reasoning: str = ""
+    token_usage: Optional[TokenUsage] = None
 
 
 # =============================================================================
@@ -589,40 +609,49 @@ class GraphRAGService:
         # 세션 히스토리 가져오기
         history = self.get_or_create_history(session_id)
 
-        # 라우팅 결정
-        if force_route:
-            # 강제 라우트 지정
-            route_map = {
-                "cypher": RouteType.CYPHER,
-                "vector": RouteType.VECTOR,
-                "hybrid": RouteType.HYBRID,
-                "llm_only": RouteType.LLM_ONLY
-            }
-            route_decision = RouteDecision(
-                route=route_map.get(force_route, RouteType.CYPHER),
-                confidence=1.0,
-                reasoning=f"Forced route: {force_route}"
-            )
-        elif self._enable_routing:
-            # Query Router로 분류
-            route_decision = self._router.route_sync(query_text)
-        else:
-            # 라우팅 비활성화시 기본 Cypher RAG
-            route_decision = RouteDecision(
-                route=RouteType.CYPHER,
-                confidence=1.0,
-                reasoning="Routing disabled, using default Cypher RAG"
-            )
+        with get_openai_callback() as cb:
+            # 라우팅 결정
+            if force_route:
+                # 강제 라우트 지정
+                route_map = {
+                    "cypher": RouteType.CYPHER,
+                    "vector": RouteType.VECTOR,
+                    "hybrid": RouteType.HYBRID,
+                    "llm_only": RouteType.LLM_ONLY
+                }
+                route_decision = RouteDecision(
+                    route=route_map.get(force_route, RouteType.CYPHER),
+                    confidence=1.0,
+                    reasoning=f"Forced route: {force_route}"
+                )
+            elif self._enable_routing:
+                # Query Router로 분류
+                route_decision = self._router.route_sync(query_text)
+            else:
+                # 라우팅 비활성화시 기본 Cypher RAG
+                route_decision = RouteDecision(
+                    route=RouteType.CYPHER,
+                    confidence=1.0,
+                    reasoning="Routing disabled, using default Cypher RAG"
+                )
 
-        # 라우트별 RAG 파이프라인 실행
-        if route_decision.route == RouteType.CYPHER:
-            query_result = self.execute_cypher_rag(query_text, route_decision)
-        elif route_decision.route == RouteType.VECTOR:
-            query_result = self.execute_vector_rag(query_text, route_decision)
-        elif route_decision.route == RouteType.HYBRID:
-            query_result = self.execute_hybrid_rag(query_text, route_decision)
-        else:  # LLM_ONLY
-            query_result = self.execute_llm_only(query_text, route_decision)
+            # 라우트별 RAG 파이프라인 실행
+            if route_decision.route == RouteType.CYPHER:
+                query_result = self.execute_cypher_rag(query_text, route_decision)
+            elif route_decision.route == RouteType.VECTOR:
+                query_result = self.execute_vector_rag(query_text, route_decision)
+            elif route_decision.route == RouteType.HYBRID:
+                query_result = self.execute_hybrid_rag(query_text, route_decision)
+            else:  # LLM_ONLY
+                query_result = self.execute_llm_only(query_text, route_decision)
+
+        # 토큰 사용량 기록
+        query_result.token_usage = TokenUsage(
+            total_tokens=cb.total_tokens,
+            prompt_tokens=cb.prompt_tokens,
+            completion_tokens=cb.completion_tokens,
+            total_cost=cb.total_cost
+        )
 
         # 히스토리에 저장
         history.add_user_message(query_text)
@@ -712,8 +741,16 @@ class GraphRAGService:
             yield f"data: {json.dumps(token_data)}\n\n"
             await asyncio.sleep(0.05)
 
-        # Step 3: 완료 신호
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        # Step 3: 완료 신호 (토큰 사용량 포함)
+        done_data = {"type": "done"}
+        if query_result.token_usage:
+            done_data["token_usage"] = {
+                "total_tokens": query_result.token_usage.total_tokens,
+                "prompt_tokens": query_result.token_usage.prompt_tokens,
+                "completion_tokens": query_result.token_usage.completion_tokens,
+                "total_cost": query_result.token_usage.total_cost
+            }
+        yield f"data: {json.dumps(done_data)}\n\n"
 
 
 # =============================================================================

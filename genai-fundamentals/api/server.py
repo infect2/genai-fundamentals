@@ -76,6 +76,22 @@ class QueryRequest(BaseModel):
     force_route: Optional[str] = None
 
 
+class TokenUsageResponse(BaseModel):
+    """
+    토큰 사용량 응답 모델
+
+    Attributes:
+        total_tokens: 총 토큰 수
+        prompt_tokens: 프롬프트 토큰 수
+        completion_tokens: 완성 토큰 수
+        total_cost: 총 비용 (USD)
+    """
+    total_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_cost: float = 0.0
+
+
 class QueryResponse(BaseModel):
     """
     /query 엔드포인트 응답 모델 (비스트리밍)
@@ -86,12 +102,14 @@ class QueryResponse(BaseModel):
         context: Neo4j에서 가져온 원본 데이터
         route: 사용된 라우트 타입 (cypher, vector, hybrid, llm_only)
         route_reasoning: 라우팅 결정 이유
+        token_usage: LLM 토큰 사용량
     """
     answer: str
     cypher: str
     context: list
     route: str = ""
     route_reasoning: str = ""
+    token_usage: Optional[TokenUsageResponse] = None
 
 
 class AgentQueryRequest(BaseModel):
@@ -118,12 +136,14 @@ class AgentQueryResponse(BaseModel):
         tool_calls: 호출된 도구 목록
         tool_results: 도구 실행 결과
         iterations: 총 반복 횟수
+        token_usage: LLM 토큰 사용량
     """
     answer: str
     thoughts: list
     tool_calls: list
     tool_results: list
     iterations: int
+    token_usage: Optional[TokenUsageResponse] = None
 
 
 # =============================================================================
@@ -187,12 +207,22 @@ async def query(request: QueryRequest):
                 force_route=request.force_route
             )
 
+            token_usage = None
+            if result.token_usage:
+                token_usage = TokenUsageResponse(
+                    total_tokens=result.token_usage.total_tokens,
+                    prompt_tokens=result.token_usage.prompt_tokens,
+                    completion_tokens=result.token_usage.completion_tokens,
+                    total_cost=result.token_usage.total_cost
+                )
+
             return QueryResponse(
                 answer=result.answer,
                 cypher=result.cypher,
                 context=result.context,
                 route=result.route,
-                route_reasoning=result.route_reasoning
+                route_reasoning=result.route_reasoning,
+                token_usage=token_usage
             )
 
     except Exception as e:
@@ -273,12 +303,22 @@ async def agent_query(request: AgentQueryRequest):
                 session_id=request.session_id
             )
 
+            token_usage = None
+            if result.token_usage:
+                token_usage = TokenUsageResponse(
+                    total_tokens=result.token_usage.total_tokens,
+                    prompt_tokens=result.token_usage.prompt_tokens,
+                    completion_tokens=result.token_usage.completion_tokens,
+                    total_cost=result.token_usage.total_cost
+                )
+
             return AgentQueryResponse(
                 answer=result.answer,
                 thoughts=result.thoughts,
                 tool_calls=result.tool_calls,
                 tool_results=result.tool_results,
-                iterations=result.iterations
+                iterations=result.iterations,
+                token_usage=token_usage
             )
 
     except Exception as e:

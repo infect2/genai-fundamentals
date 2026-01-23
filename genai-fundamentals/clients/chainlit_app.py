@@ -93,11 +93,10 @@ async def on_chat_start():
         - Chat Settings UI는 화면 우측 상단의 설정 아이콘을 통해 접근할 수 있습니다.
     """
     # -------------------------------------------------------------------------
-    # 세션 ID 생성
+    # 세션 ID 생성 (인증된 사용자는 email 사용, 비인증은 UUID)
     # -------------------------------------------------------------------------
-    # UUID v4를 생성하고 앞 8자리만 사용하여 짧고 고유한 세션 식별자 생성
-    # 예: "a1b2c3d4"
-    session_id = str(uuid.uuid4())[:8]
+    user = cl.user_session.get("user")
+    session_id = user.identifier if user else str(uuid.uuid4())[:8]
     cl.user_session.set("session_id", session_id)
 
     # -------------------------------------------------------------------------
@@ -141,7 +140,6 @@ async def on_chat_start():
     # -------------------------------------------------------------------------
     # 인증된 사용자 정보 조회
     # -------------------------------------------------------------------------
-    user = cl.user_session.get("user")
     display_name = user.display_name or user.identifier if user else "Guest"
 
     try:
@@ -180,6 +178,25 @@ async def on_chat_start():
     except Exception as e:
         # 기타 예외 (타임아웃, JSON 파싱 오류 등)
         await cl.Message(content=f"❌ 오류가 발생했습니다: {str(e)}").send()
+
+    # -------------------------------------------------------------------------
+    # 이전 대화 이력 복원 (Neo4j에서 조회)
+    # -------------------------------------------------------------------------
+    try:
+        history_response = requests.get(
+            f"{API_BASE_URL}/history/{session_id}", timeout=10
+        )
+        if history_response.status_code == 200:
+            messages = history_response.json().get("messages", [])
+            if messages:
+                await cl.Message(content="📜 **이전 대화 이력을 복원합니다...**").send()
+                for msg in messages:
+                    if msg["role"] == "human":
+                        await cl.Message(content=msg["content"], author="User", type="user_message").send()
+                    elif msg["role"] == "ai":
+                        await cl.Message(content=msg["content"]).send()
+    except Exception:
+        pass
 
 # -----------------------------------------------------------------------------
 # Chat Settings UI 변경 이벤트 핸들러
@@ -260,34 +277,21 @@ async def toggle_streaming(action: cl.Action):
 @cl.action_callback("reset_session")
 async def reset_session(action: cl.Action):
     """
-    현재 세션을 초기화하는 액션 콜백입니다.
+    현재 세션의 대화 이력을 초기화하는 액션 콜백입니다.
 
     '🗑️ 세션 초기화' 버튼을 클릭하면 호출됩니다.
-    API 서버에 세션 리셋 요청을 보내고 새로운 세션 ID를 생성합니다.
-
-    동작:
-    1. API 서버의 /reset/{session_id} 엔드포인트 호출
-    2. 새로운 세션 ID 생성
-    3. 클라이언트 세션 스토리지 업데이트
+    API 서버에 세션 리셋 요청을 보내 Neo4j의 대화 이력을 삭제합니다.
+    세션 ID(email)는 유지됩니다.
 
     Args:
         action (cl.Action): 클릭된 액션 버튼 정보
     """
     session_id = cl.user_session.get("session_id")
     try:
-        # API 서버에 세션 리셋 요청
-        # 서버 측에서 해당 세션의 대화 히스토리가 삭제됨
         requests.post(f"{API_BASE_URL}/reset/{session_id}", timeout=5)
-
-        # 새로운 세션 ID 생성 및 저장
-        new_session_id = str(uuid.uuid4())[:8]
-        cl.user_session.set("session_id", new_session_id)
-
-        await cl.Message(
-            content=f"🗑️ 세션이 초기화되었습니다.\n새 세션 ID: `{new_session_id}`"
-        ).send()
+        await cl.Message(content=f"🗑️ 대화 이력이 초기화되었습니다.").send()
     except Exception as e:
-        await cl.Message(content=f"❌ 세션 초기화 실패: {str(e)}").send()
+        await cl.Message(content=f"❌ 초기화 실패: {str(e)}").send()
 
 @cl.action_callback("show_settings")
 async def show_settings(action: cl.Action):
@@ -626,19 +630,6 @@ async def on_chat_end():
     채팅 세션이 종료될 때 호출되는 Chainlit 이벤트 핸들러입니다.
 
     사용자가 브라우저 탭을 닫거나 세션이 타임아웃될 때 호출됩니다.
-    서버 측의 세션 데이터를 정리하기 위해 리셋 요청을 보냅니다.
-
-    Notes:
-        - 예외가 발생해도 무시 (세션 종료 시점이므로 복구 불필요)
-        - 서버 측 메모리 누수 방지를 위한 클린업 작업
+    대화 이력은 Neo4j에 영속화되어 있으므로 별도 정리가 필요 없습니다.
     """
-    session_id = cl.user_session.get("session_id")
-    if session_id:
-        try:
-            # API 서버에 세션 정리 요청
-            # 서버 측의 대화 히스토리 메모리를 해제
-            requests.post(f"{API_BASE_URL}/reset/{session_id}", timeout=5)
-        except:
-            # 세션 종료 시점이므로 오류 무시
-            # 네트워크 오류나 서버 다운 등의 상황에서도 정상 종료
-            pass
+    pass

@@ -22,8 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_neo4j import Neo4jGraph, GraphCypherQAChain, Neo4jVector
-from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_neo4j import Neo4jGraph, GraphCypherQAChain, Neo4jVector, Neo4jChatMessageHistory
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_community.callbacks import get_openai_callback
@@ -214,7 +213,7 @@ class GraphRAGService:
     주요 기능:
     - 자연어 → Cypher 쿼리 변환
     - Neo4j 쿼리 실행
-    - 세션별 대화 히스토리 관리
+    - 세션별 대화 히스토리 관리 (Neo4j 영속화)
     - 동기/비동기 쿼리 지원
     - 스트리밍 응답 지원
 
@@ -223,6 +222,9 @@ class GraphRAGService:
         result = service.query("Which actors appeared in The Matrix?")
         print(result.answer)
     """
+
+    _CHAT_SESSION_NODE_LABEL = "ChatSession"
+    _CHAT_HISTORY_WINDOW = 50
 
     def __init__(
         self,
@@ -315,8 +317,6 @@ class GraphRAGService:
         self._llm_only_prompt = ChatPromptTemplate.from_template(LLM_ONLY_TEMPLATE)
         self._llm_only_chain = self._llm_only_prompt | self._llm | StrOutputParser()
 
-        # 세션 히스토리 저장소
-        self._session_histories: dict[str, ChatMessageHistory] = {}
 
     def _get_vector_store(self) -> Neo4jVector:
         """Vector Store lazy initialization"""
@@ -335,19 +335,24 @@ class GraphRAGService:
     # 세션 관리 메서드
     # -------------------------------------------------------------------------
 
-    def get_or_create_history(self, session_id: str) -> ChatMessageHistory:
+    def get_or_create_history(self, session_id: str) -> Neo4jChatMessageHistory:
         """
         세션 ID에 해당하는 대화 히스토리를 가져오거나 새로 생성
+
+        Neo4j에 영속화되므로 서버 재시작 후에도 이력이 보존됩니다.
 
         Args:
             session_id: 세션 식별자
 
         Returns:
-            ChatMessageHistory 객체
+            Neo4jChatMessageHistory 객체
         """
-        if session_id not in self._session_histories:
-            self._session_histories[session_id] = ChatMessageHistory()
-        return self._session_histories[session_id]
+        return Neo4jChatMessageHistory(
+            session_id=session_id,
+            graph=self._graph,
+            node_label=self._CHAT_SESSION_NODE_LABEL,
+            window=self._CHAT_HISTORY_WINDOW,
+        )
 
     def reset_session(self, session_id: str) -> bool:
         """
@@ -357,21 +362,40 @@ class GraphRAGService:
             session_id: 삭제할 세션 ID
 
         Returns:
-            삭제 성공 여부 (세션이 존재했으면 True)
+            삭제 성공 여부 (메시지가 존재했으면 True)
         """
-        if session_id in self._session_histories:
-            del self._session_histories[session_id]
-            return True
-        return False
+        history = self.get_or_create_history(session_id)
+        has_messages = len(history.messages) > 0
+        history.clear()
+        return has_messages
 
     def list_sessions(self) -> List[str]:
         """
-        현재 활성화된 모든 세션 ID 목록 반환
+        현재 활성화된 모든 세션 ID 목록 반환 (Neo4j에서 조회)
 
         Returns:
             세션 ID 리스트
         """
-        return list(self._session_histories.keys())
+        result = self._graph.query(
+            f"MATCH (s:`{self._CHAT_SESSION_NODE_LABEL}`) RETURN s.id AS session_id ORDER BY s.id"
+        )
+        return [record["session_id"] for record in result]
+
+    def get_history_messages(self, session_id: str) -> List[dict]:
+        """
+        특정 세션의 대화 이력을 dict 리스트로 반환
+
+        Args:
+            session_id: 세션 식별자
+
+        Returns:
+            [{"role": "human"|"ai", "content": "..."}, ...] 형태의 리스트
+        """
+        history = self.get_or_create_history(session_id)
+        return [
+            {"role": msg.type, "content": msg.content}
+            for msg in history.messages
+        ]
 
     def get_schema(self) -> str:
         """

@@ -260,6 +260,23 @@ def list_sessions():
     return {"sessions": service.list_sessions()}
 
 
+@app.get("/history/{session_id}")
+def get_history(session_id: str):
+    """
+    세션 대화 이력 조회 엔드포인트
+
+    특정 세션의 전체 대화 이력을 반환합니다.
+
+    Args:
+        session_id: 조회할 세션 ID (URL 경로 파라미터)
+
+    Returns:
+        세션 ID와 메시지 목록
+    """
+    messages = service.get_history_messages(session_id)
+    return {"session_id": session_id, "messages": messages}
+
+
 # =============================================================================
 # Agent API 엔드포인트
 # =============================================================================

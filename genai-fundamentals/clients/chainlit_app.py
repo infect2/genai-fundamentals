@@ -154,10 +154,10 @@ async def on_chat_start():
             data = response.json()
             version = data.get("version", "N/A")  # API 버전 (없으면 "N/A")
             await cl.Message(
-                content=f"🎬 **GraphRAG Movie Chat**에 오신 것을 환영합니다, {display_name}님!\n\n"
+                content=f"🎬 **Capora AI powered by Ontology**에 오신 것을 환영합니다, {display_name}님!\n\n"
                         f"📡 API 서버 연결됨 (v{version})\n"
                         f"🔑 세션 ID: `{session_id}`\n\n"
-                        f"영화에 대해 질문해보세요!"
+                        f"무엇이든 물어보세요!"
             ).send()
         else:
             # HTTP 상태 코드가 200이 아닌 경우 (예: 500 Internal Server Error)

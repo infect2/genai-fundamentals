@@ -36,6 +36,7 @@ certs/
 
 # Chainlit auto-generated files
 .chainlit/
+!.chainlit/config.toml
 
 # Claude local config
 .claude/

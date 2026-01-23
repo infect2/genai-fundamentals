@@ -15,7 +15,7 @@ from langchain_community.callbacks import get_openai_callback
 
 from .graph import create_agent_graph
 from .state import AgentState
-from ..service import TokenUsage
+from ..models import TokenUsage
 
 
 @dataclass

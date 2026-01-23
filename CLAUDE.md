@@ -198,9 +198,19 @@ genai-fundamentals/
 ├── api/                        # REST API 서버 및 MCP 서버
 │   ├── __init__.py
 │   ├── server.py               # FastAPI endpoints
-│   ├── service.py              # GraphRAG business logic (LangChain)
+│   ├── service.py              # GraphRAG 오케스트레이션 (세션, 쿼리 라우팅)
+│   ├── models.py               # 데이터 클래스 (TokenUsage, QueryResult)
+│   ├── prompts.py              # 프롬프트 템플릿 모음
 │   ├── router.py               # Query Router (쿼리 분류 및 라우팅)
 │   ├── mcp_server.py           # MCP (Model Context Protocol) server
+│   ├── pipelines/              # 라우트별 RAG 파이프라인
+│   │   ├── __init__.py         # re-exports
+│   │   ├── utils.py            # 공통 유틸리티
+│   │   ├── cypher.py           # Cypher RAG (Text-to-Cypher)
+│   │   ├── vector.py           # Vector RAG (시맨틱 검색)
+│   │   ├── hybrid.py           # Hybrid RAG (Vector + Cypher)
+│   │   ├── llm_only.py         # LLM Only (직접 응답)
+│   │   └── memory.py           # Memory (사용자 정보 저장/조회)
 │   └── agent/                  # ReAct Agent (LangGraph 기반)
 │       ├── __init__.py
 │       ├── graph.py            # LangGraph StateGraph 정의
@@ -256,8 +266,11 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 
 ### Files
 - `api/server.py` - FastAPI endpoints (thin layer)
-- `api/service.py` - GraphRAG business logic
+- `api/service.py` - GraphRAG 오케스트레이션 (세션 관리, 쿼리 라우팅)
+- `api/models.py` - 데이터 클래스 (TokenUsage, QueryResult, StreamingCallbackHandler)
+- `api/prompts.py` - 프롬프트 템플릿 모음
 - `api/router.py` - Query Router (쿼리 분류)
+- `api/pipelines/` - 라우트별 RAG 파이프라인 (cypher, vector, hybrid, llm_only, memory)
 
 ### Endpoints
 | Method | Path | Description |
@@ -566,7 +579,8 @@ class TokenUsage:
 
 | 파일 | 역할 |
 |------|------|
-| `api/service.py` | `TokenUsage` 데이터클래스 정의, `query()`에 callback 래핑 |
+| `api/models.py` | `TokenUsage` 데이터클래스 정의 |
+| `api/service.py` | `query()`에 callback 래핑 |
 | `api/agent/service.py` | `query()`/`query_async()`/`query_stream()`에 callback 래핑 |
 | `api/server.py` | `TokenUsageResponse` 응답 모델 |
 | `api/mcp_server.py` | 응답 JSON에 token_usage 포함 |

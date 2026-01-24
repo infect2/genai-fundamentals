@@ -1,10 +1,12 @@
 import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dotenv import load_dotenv
 load_dotenv()
 
 from neo4j import GraphDatabase
 # tag::import-embedder[]
-from neo4j_graphrag.embeddings.openai import OpenAIEmbeddings
+from tools.llm_provider import create_neo4j_embeddings
 # end::import-embedder[]
 # tag::import-retriever[]
 from neo4j_graphrag.retrievers import VectorRetriever
@@ -21,7 +23,7 @@ driver = GraphDatabase.driver(
 
 # tag::embedder[]
 # Create embedder
-embedder = OpenAIEmbeddings(model="text-embedding-ada-002")
+embedder = create_neo4j_embeddings()
 # end::embedder[]
 
 # tag::retriever[]

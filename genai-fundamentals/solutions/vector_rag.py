@@ -1,12 +1,13 @@
 import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dotenv import load_dotenv
 load_dotenv()
 
 from neo4j import GraphDatabase
-from neo4j_graphrag.embeddings.openai import OpenAIEmbeddings
 from neo4j_graphrag.retrievers import VectorRetriever
 # tag::import-llm[]
-from neo4j_graphrag.llm import OpenAILLM
+from tools.llm_provider import create_neo4j_llm, create_neo4j_embeddings
 # end::import-llm[]
 # tag::import-graphrag[]
 from neo4j_graphrag.generation import GraphRAG
@@ -22,7 +23,7 @@ driver = GraphDatabase.driver(
 )
 
 # Create embedder
-embedder = OpenAIEmbeddings(model="text-embedding-ada-002")
+embedder = create_neo4j_embeddings()
 
 # Create retriever
 retriever = VectorRetriever(
@@ -34,15 +35,12 @@ retriever = VectorRetriever(
 
 # tag::llm[]
 # Create the LLM
-llm = OpenAILLM(model_name="gpt-4o")
+llm = create_neo4j_llm()
 # end::llm[]
 
 # tag::llm-temp[]
 # Modify the LLM configuration if needed
-llm = OpenAILLM(
-    model_name="gpt-3.5-turbo", 
-    model_params={"temperature": 1}
-)
+llm = create_neo4j_llm(model_params={"temperature": 1})
 # end::llm-temp[]
 
 # tag::graphrag[]

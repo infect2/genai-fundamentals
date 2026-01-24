@@ -7,10 +7,11 @@ Reason → Act → Observe 루프를 구현합니다.
 
 from typing import TYPE_CHECKING, List, Literal
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
+
+from ...tools.llm_provider import create_langchain_llm
 
 from .state import AgentState
 from .prompts import REACT_SYSTEM_PROMPT
@@ -24,13 +25,13 @@ if TYPE_CHECKING:
 MAX_ITERATIONS = 10
 
 
-def create_agent_graph(service: "GraphRAGService", model_name: str = "gpt-4o"):
+def create_agent_graph(service: "GraphRAGService", model_name: str = None):
     """
     ReAct Agent 그래프를 생성합니다.
 
     Args:
         service: GraphRAGService 인스턴스
-        model_name: 사용할 OpenAI 모델 (기본값: gpt-4o)
+        model_name: 사용할 LLM 모델 (기본값: 프로바이더별 환경변수)
 
     Returns:
         컴파일된 LangGraph 그래프
@@ -39,7 +40,7 @@ def create_agent_graph(service: "GraphRAGService", model_name: str = "gpt-4o"):
     tools = create_agent_tools(service)
 
     # LLM 설정 (도구 바인딩)
-    llm = ChatOpenAI(model=model_name, temperature=0)
+    llm = create_langchain_llm(model_name=model_name, temperature=0)
     llm_with_tools = llm.bind_tools(tools)
 
     # 도구 노드 생성

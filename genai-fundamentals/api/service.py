@@ -20,11 +20,17 @@ from typing import Optional, List, AsyncGenerator
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_neo4j import Neo4jGraph, GraphCypherQAChain, Neo4jVector, Neo4jChatMessageHistory
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
-from langchain_community.callbacks import get_openai_callback
 from langchain_core.output_parsers import StrOutputParser
+
+from ..tools.llm_provider import (
+    create_langchain_llm,
+    create_langchain_embeddings,
+    get_router_model_name,
+    get_token_tracker,
+    check_embedding_dimension_compatibility,
+)
 
 from .models import TokenUsage, QueryResult
 from .prompts import (
@@ -69,7 +75,7 @@ class GraphRAGService:
         neo4j_uri: Optional[str] = None,
         neo4j_username: Optional[str] = None,
         neo4j_password: Optional[str] = None,
-        model_name: str = "gpt-4o",
+        model_name: Optional[str] = None,
         temperature: float = 0,
         enable_routing: bool = True
     ):
@@ -80,7 +86,7 @@ class GraphRAGService:
             neo4j_uri: Neo4j 연결 URI (기본값: 환경변수 NEO4J_URI)
             neo4j_username: Neo4j 사용자명 (기본값: 환경변수 NEO4J_USERNAME)
             neo4j_password: Neo4j 비밀번호 (기본값: 환경변수 NEO4J_PASSWORD)
-            model_name: OpenAI 모델명 (기본값: "gpt-4o")
+            model_name: LLM 모델명 (기본값: 프로바이더별 환경변수)
             temperature: LLM temperature (기본값: 0, 결정론적 출력)
             enable_routing: Query Router 활성화 여부 (기본값: True)
         """
@@ -103,13 +109,13 @@ class GraphRAGService:
         )
 
         # LLM 인스턴스 생성
-        self._llm = ChatOpenAI(
-            model=model_name,
+        self._llm = create_langchain_llm(
+            model_name=model_name,
             temperature=temperature
         )
 
-        self._streaming_llm = ChatOpenAI(
-            model=model_name,
+        self._streaming_llm = create_langchain_llm(
+            model_name=model_name,
             temperature=temperature,
             streaming=True
         )
@@ -135,10 +141,12 @@ class GraphRAGService:
         )
 
         # Query Router 초기화
-        self._router = QueryRouter(llm=ChatOpenAI(model="gpt-4o-mini", temperature=0))
+        self._router = QueryRouter(
+            llm=create_langchain_llm(model_name=get_router_model_name(), temperature=0)
+        )
 
         # Embeddings 설정 (Vector RAG용)
-        self._embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+        self._embeddings = create_langchain_embeddings()
 
         # Vector Store 초기화 (lazy initialization)
         self._vector_store = None
@@ -159,6 +167,7 @@ class GraphRAGService:
     def _get_vector_store(self) -> Neo4jVector:
         """Vector Store lazy initialization"""
         if self._vector_store is None:
+            check_embedding_dimension_compatibility()
             self._vector_store = Neo4jVector.from_existing_index(
                 embedding=self._embeddings,
                 url=self._neo4j_uri,
@@ -279,7 +288,7 @@ class GraphRAGService:
         # 세션 히스토리 가져오기
         history = self.get_or_create_history(session_id)
 
-        with get_openai_callback() as cb:
+        with get_token_tracker() as cb:
             # 라우팅 결정
             if force_route:
                 # 강제 라우트 지정

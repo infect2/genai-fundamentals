@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from typing import Optional, List, AsyncGenerator, Any
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from langchain_community.callbacks import get_openai_callback
+
+from ...tools.llm_provider import get_token_tracker
 
 from .graph import create_agent_graph
 from .state import AgentState
@@ -59,14 +60,14 @@ class AgentService:
     def __init__(
         self,
         graphrag_service,
-        model_name: str = "gpt-4o"
+        model_name: Optional[str] = None
     ):
         """
         AgentService 초기화
 
         Args:
             graphrag_service: GraphRAGService 인스턴스
-            model_name: Agent에서 사용할 LLM 모델 (기본값: gpt-4o)
+            model_name: Agent에서 사용할 LLM 모델 (기본값: 프로바이더별 환경변수)
         """
         self._graphrag_service = graphrag_service
         self._model_name = model_name
@@ -100,7 +101,7 @@ class AgentService:
         }
 
         # 그래프 실행 (토큰 사용량 추적)
-        with get_openai_callback() as cb:
+        with get_token_tracker() as cb:
             final_state = self._graph.invoke(initial_state)
 
         # 결과 추출
@@ -138,7 +139,7 @@ class AgentService:
         }
 
         # 비동기 그래프 실행 (토큰 사용량 추적)
-        with get_openai_callback() as cb:
+        with get_token_tracker() as cb:
             final_state = await self._graph.ainvoke(initial_state)
 
         # 결과 추출
@@ -186,7 +187,7 @@ class AgentService:
         tool_calls_sent = set()
 
         # astream_events를 사용하여 실시간 이벤트 스트리밍 (토큰 사용량 추적)
-        with get_openai_callback() as cb:
+        with get_token_tracker() as cb:
             async for event in self._graph.astream_events(initial_state, version="v2"):
                 event_type = event.get("event", "")
                 event_data = event.get("data", {})

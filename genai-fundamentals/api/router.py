@@ -8,24 +8,27 @@ Query Router Module
 - vector: Vector search (시맨틱/유사도 검색)
 - hybrid: Vector + Cypher (복합 쿼리)
 - llm_only: LLM 직접 응답 (DB 불필요)
+- memory:  사용자 정보 저장/조회
 """
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import PromptTemplate
+
+from ..tools.llm_provider import create_langchain_llm, get_router_model_name
 
 
 class RouteType(Enum):
     """쿼리 라우트 타입"""
-    CYPHER = "cypher"      # Text-to-Cypher (엔티티/관계 조회)
-    VECTOR = "vector"      # Vector search (시맨틱/유사도 검색)
-    HYBRID = "hybrid"      # Vector + Cypher (복합 쿼리)
+
+    CYPHER = "cypher"  # Text-to-Cypher (엔티티/관계 조회)
+    VECTOR = "vector"  # Vector search (시맨틱/유사도 검색)
+    HYBRID = "hybrid"  # Vector + Cypher (복합 쿼리)
     LLM_ONLY = "llm_only"  # LLM 직접 응답 (DB 불필요)
-    MEMORY = "memory"      # 사용자 정보 저장/조회
+    MEMORY = "memory"  # 사용자 정보 저장/조회
 
 
 @dataclass
@@ -38,6 +41,7 @@ class RouteDecision:
         confidence: 결정 신뢰도 (0.0-1.0)
         reasoning: 라우팅 결정 이유
     """
+
     route: RouteType
     confidence: float
     reasoning: str
@@ -103,21 +107,19 @@ class QueryRouter:
         print(decision.route)  # RouteType.CYPHER
     """
 
-    def __init__(self, llm: Optional[ChatOpenAI] = None):
+    def __init__(self, llm=None):
         """
         QueryRouter 초기화
 
         Args:
             llm: 분류에 사용할 LLM 인스턴스 (None이면 기본 생성)
         """
-        self._llm = llm or ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0
+        self._llm = llm or create_langchain_llm(
+            model_name=get_router_model_name(), temperature=0
         )
 
         self._prompt = PromptTemplate(
-            input_variables=["query"],
-            template=CLASSIFICATION_PROMPT
+            input_variables=["query"], template=CLASSIFICATION_PROMPT
         )
 
         self._chain = self._prompt | self._llm | StrOutputParser()
@@ -156,15 +158,11 @@ class QueryRouter:
             "vector": RouteType.VECTOR,
             "hybrid": RouteType.HYBRID,
             "llm_only": RouteType.LLM_ONLY,
-            "memory": RouteType.MEMORY
+            "memory": RouteType.MEMORY,
         }
         route = route_map.get(route_str, RouteType.CYPHER)
 
-        return RouteDecision(
-            route=route,
-            confidence=confidence,
-            reasoning=reasoning
-        )
+        return RouteDecision(route=route, confidence=confidence, reasoning=reasoning)
 
     async def route(self, query: str) -> RouteDecision:
         """

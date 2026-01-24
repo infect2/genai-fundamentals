@@ -717,16 +717,93 @@ class TokenUsage:
 ## Configuration
 
 Environment variables required in `.env` file (see `.env.example`):
-- `OPENAI_API_KEY` - OpenAI API key
+- `LLM_PROVIDER` - LLM 프로바이더 선택 (`openai`/`bedrock`/`azure`/`google`, 기본값: `openai`)
 - `NEO4J_URI` - Neo4j connection URI
 - `NEO4J_USERNAME` - Neo4j username
 - `NEO4J_PASSWORD` - Neo4j password
+
+프로바이더별 추가 환경변수는 아래 "LLM Provider 설정" 섹션 참고.
+
+## LLM Provider 설정
+
+`tools/llm_provider.py` 팩토리 모듈을 통해 여러 LLM 프로바이더를 환경변수로 전환 가능합니다.
+
+### 프로바이더 전환
+
+```bash
+# .env 파일에서 설정
+LLM_PROVIDER="openai"   # openai (기본) | bedrock | azure | google
+```
+
+### 프로바이더별 환경변수
+
+| Provider | 필수 환경변수 |
+|----------|--------------|
+| `openai` | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL` |
+| `bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `BEDROCK_MODEL_ID`, `BEDROCK_EMBEDDING_MODEL_ID` |
+| `azure` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` |
+| `google` | `GOOGLE_PROJECT_ID`, `GOOGLE_LOCATION`, `VERTEX_MODEL`, `VERTEX_EMBEDDING_MODEL` |
+
+### 팩토리 함수
+
+| 함수 | 레이어 | 설명 |
+|------|--------|------|
+| `create_langchain_llm()` | LangChain | API 서버용 ChatModel 생성 |
+| `create_langchain_embeddings()` | LangChain | API 서버용 Embeddings 생성 |
+| `create_neo4j_llm()` | neo4j-graphrag | exercises/solutions용 LLM 생성 |
+| `create_neo4j_embeddings()` | neo4j-graphrag | exercises/solutions용 Embedder 생성 |
+| `get_token_tracker()` | 공통 | 프로바이더별 토큰 추적 컨텍스트 매니저 |
+| `get_router_model_name()` | 공통 | 라우터용 경량 모델명 반환 |
+
+### 벡터 인덱스 호환성
+
+Neo4j `moviePlots` 인덱스는 OpenAI `text-embedding-ada-002` (1536차원)으로 생성됨.
+호환되지 않는 프로바이더 사용 시 경고가 출력됩니다.
+
+| Provider | Embedding Model | Dimension | 호환성 |
+|----------|----------------|-----------|--------|
+| openai | text-embedding-ada-002 | 1536 | O |
+| azure | text-embedding-ada-002 | 1536 | O |
+| bedrock | amazon.titan-embed-text-v2:0 | 1024 | X (재인덱싱 필요) |
+| google | text-embedding-004 | 768 | X (재인덱싱 필요) |
+
+### 토큰 추적
+
+| Provider | 방법 | 비용 계산 |
+|----------|------|----------|
+| openai/azure | `get_openai_callback()` | O (정확) |
+| bedrock/google | `GenericTokenTracker` | 토큰 수만 (비용 0.0) |
+
+### 사용 예시
+
+```python
+# LangChain (API 서버)
+from genai_fundamentals.tools.llm_provider import (
+    create_langchain_llm, create_langchain_embeddings, get_token_tracker
+)
+
+llm = create_langchain_llm(temperature=0)
+embeddings = create_langchain_embeddings()
+
+with get_token_tracker() as tracker:
+    result = chain.invoke(...)
+print(tracker.total_tokens, tracker.total_cost)
+
+# neo4j-graphrag (exercises/solutions)
+from genai_fundamentals.tools.llm_provider import create_neo4j_llm, create_neo4j_embeddings
+
+llm = create_neo4j_llm(model_params={"temperature": 0})
+embedder = create_neo4j_embeddings()
+```
 
 ## Dependencies
 
 Key packages in `requirements.txt`:
 - `neo4j-graphrag[openai]` - Neo4j GraphRAG library
 - `langchain`, `langchain-openai`, `langchain-neo4j` - LangChain framework
+- `langchain-aws` - AWS Bedrock LangChain integration
+- `langchain-google-vertexai` - Google Vertex AI LangChain integration
+- `boto3` - AWS SDK (Bedrock용)
 - `langgraph` - LangGraph for ReAct Agent
 - `fastapi`, `uvicorn` - REST API server
 - `mcp` - Model Context Protocol server

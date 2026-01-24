@@ -149,6 +149,19 @@ HTTP/SSE 모드:
 pytest genai-fundamentals/tests/test_mcp_server.py -v -k "not neo4j"
 ```
 
+### A2A Server
+
+```bash
+# A2A 서버 시작 (기본 포트: 9000)
+python -m genai-fundamentals.api.a2a_server
+
+# 포트 지정
+python -m genai-fundamentals.api.a2a_server --port 9000
+
+# AgentCard 확인
+curl http://localhost:9000/.well-known/agent.json
+```
+
 ### Docker
 
 ```bash
@@ -195,7 +208,7 @@ docker run -p 8000:8000 \
 ### Directory Structure
 ```
 genai-fundamentals/
-├── api/                        # REST API 서버 및 MCP 서버
+├── api/                        # REST API, MCP, A2A 서버
 │   ├── __init__.py
 │   ├── server.py               # FastAPI endpoints
 │   ├── service.py              # GraphRAG 오케스트레이션 (세션, 쿼리 라우팅)
@@ -203,6 +216,7 @@ genai-fundamentals/
 │   ├── prompts.py              # 프롬프트 템플릿 모음
 │   ├── router.py               # Query Router (쿼리 분류 및 라우팅)
 │   ├── mcp_server.py           # MCP (Model Context Protocol) server
+│   ├── a2a_server.py           # A2A (Agent2Agent) Protocol server
 │   ├── pipelines/              # 라우트별 RAG 파이프라인
 │   │   ├── __init__.py         # re-exports
 │   │   ├── utils.py            # 공통 유틸리티
@@ -363,13 +377,125 @@ result = await client.call_tool("query", {
 
 ### Architecture Comparison
 
-| Feature | REST API | MCP Server |
-|---------|----------|------------|
-| Protocol | HTTP | stdio (JSON-RPC) |
-| Entry point | `api/server.py` | `api/mcp_server.py` |
-| Business logic | `api/service.py` | `api/service.py` (shared) |
-| Streaming | SSE | Not supported |
-| Use case | Web apps, curl | Claude Desktop, AI agents |
+| Feature | REST API | MCP Server | A2A Server |
+|---------|----------|------------|------------|
+| Protocol | HTTP | stdio (JSON-RPC) | JSON-RPC 2.0 (HTTP) |
+| Entry point | `api/server.py` | `api/mcp_server.py` | `api/a2a_server.py` |
+| Business logic | `api/service.py` | `api/service.py` (shared) | `api/service.py` (shared) |
+| Streaming | SSE | Not supported | Not supported |
+| Use case | Web apps, curl | Claude Desktop, AI assistants | Agent-to-Agent 통신 |
+| Default port | 8000 | - | 9000 |
+
+## A2A Server
+
+A2A (Agent2Agent) 프로토콜 서버는 Google의 A2A Protocol을 통해 GraphRAG 기능을 에이전트 간 통신으로 제공합니다.
+REST API, MCP 서버와 동일한 비즈니스 로직(`service.py`)을 공유합니다.
+
+**A2A vs MCP:**
+- MCP: Agent → Tools (에이전트가 도구를 호출)
+- A2A: Agent → Agent (에이전트 간 대등한 통신)
+
+### 실행 방법
+
+```bash
+# A2A 서버 시작 (기본 포트: 9000)
+python -m genai-fundamentals.api.a2a_server
+
+# 포트 지정
+python -m genai-fundamentals.api.a2a_server --port 9000
+
+# AgentCard 확인
+curl http://localhost:9000/.well-known/agent.json | python -m json.tool
+```
+
+### AgentCard
+
+AgentCard는 에이전트의 기능을 자기 기술하는 매니페스트입니다:
+
+| Field | Value |
+|-------|-------|
+| Name | GraphRAG Agent |
+| URL | http://localhost:9000 |
+| Input modes | text/plain, application/json |
+| Output modes | text/plain, application/json |
+| Streaming | No |
+
+### Skills
+
+| Skill ID | 설명 | 예시 쿼리 |
+|----------|------|----------|
+| `graphrag_query` | Query Router 기반 자동 RAG 파이프라인 선택 | "Which actors appeared in The Matrix?" |
+| `graphrag_agent` | ReAct Agent multi-step reasoning | "톰 행크스와 비슷한 배우가 출연한 SF 영화는?" |
+
+### 쿼리 테스트
+
+```bash
+# 일반 쿼리 (message/send)
+curl -X POST http://localhost:9000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "messageId": "msg-001",
+        "role": "user",
+        "parts": [{"kind": "text", "text": "Which actors appeared in The Matrix?"}]
+      }
+    }
+  }'
+
+# Agent 쿼리 (skill_id 지정)
+curl -X POST http://localhost:9000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "2",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "messageId": "msg-002",
+        "role": "user",
+        "parts": [{"kind": "text", "text": "톰 행크스와 비슷한 배우가 출연한 SF 영화는?"}],
+        "metadata": {"skill_id": "graphrag_agent"}
+      }
+    }
+  }'
+```
+
+### 응답 형식
+
+응답은 TextPart (자연어 답변) + DataPart (구조화 데이터)로 구성됩니다:
+
+**Query 응답 DataPart:**
+```json
+{
+  "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
+  "context": ["{'a.name': 'Hugo Weaving'}", ...],
+  "route": "cypher",
+  "route_reasoning": "특정 영화 제목으로 배우 조회",
+  "token_usage": {"total_tokens": 641, "total_cost": 0.001985}
+}
+```
+
+**Agent 응답 DataPart:**
+```json
+{
+  "thoughts": ["First, I'll find Tom Hanks movies...", ...],
+  "tool_calls": [{"name": "cypher_query", "args": {...}}],
+  "iterations": 3,
+  "token_usage": {"total_tokens": 2500, "total_cost": 0.0125}
+}
+```
+
+### 주요 파일
+
+| 파일 | 역할 |
+|------|------|
+| `api/a2a_server.py` | A2A 프로토콜 서버 (AgentCard, AgentExecutor) |
+| `api/service.py` | GraphRAG 비즈니스 로직 (공유) |
+| `api/agent/service.py` | ReAct Agent 로직 (공유) |
 
 ## Query Router
 
@@ -574,6 +700,8 @@ class TokenUsage:
 | `POST /agent/query` | Agent reasoning + Tool 내 LLM 호출 |
 | MCP `query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only/memory) |
 | MCP `agent_query` | Agent reasoning + Tool 내 LLM 호출 |
+| A2A `graphrag_query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only/memory) |
+| A2A `graphrag_agent` | Agent reasoning + Tool 내 LLM 호출 |
 
 ### 관련 파일
 
@@ -584,6 +712,7 @@ class TokenUsage:
 | `api/agent/service.py` | `query()`/`query_async()`/`query_stream()`에 callback 래핑 |
 | `api/server.py` | `TokenUsageResponse` 응답 모델 |
 | `api/mcp_server.py` | 응답 JSON에 token_usage 포함 |
+| `api/a2a_server.py` | 응답 DataPart에 token_usage 포함 |
 
 ## Configuration
 
@@ -601,6 +730,7 @@ Key packages in `requirements.txt`:
 - `langgraph` - LangGraph for ReAct Agent
 - `fastapi`, `uvicorn` - REST API server
 - `mcp` - Model Context Protocol server
+- `a2a-sdk[http-server]` - A2A (Agent2Agent) Protocol server
 - `streamlit`, `chainlit` - Chat client UI frameworks
 - `python-dotenv` - Environment variable management
 

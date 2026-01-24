@@ -1,0 +1,285 @@
+"""
+GraphRAG A2A (Agent2Agent) Protocol Server
+
+A2A 프로토콜을 통해 GraphRAG 기능을 에이전트 간 통신으로 제공합니다.
+기존 REST API/MCP 서버와 동일한 비즈니스 로직(service.py)을 공유합니다.
+
+실행 방법:
+    python -m genai-fundamentals.api.a2a_server
+    python -m genai-fundamentals.api.a2a_server --port 9000
+
+기본 URL: http://localhost:9000
+AgentCard: http://localhost:9000/.well-known/agent.json
+"""
+
+import argparse
+import asyncio
+import uuid
+
+from a2a.server.apps import A2AStarletteApplication
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.agent_execution import AgentExecutor, RequestContext
+from a2a.server.events import EventQueue
+from a2a.server.tasks import InMemoryTaskStore
+from a2a.types import (
+    AgentCard,
+    AgentSkill,
+    AgentCapabilities,
+    Part,
+    TextPart,
+    DataPart,
+    TaskStatusUpdateEvent,
+    TaskArtifactUpdateEvent,
+    TaskState,
+    TaskStatus,
+    Artifact,
+)
+from a2a.utils import new_agent_text_message, new_agent_parts_message
+import uvicorn
+
+from .service import get_service, GraphRAGService
+from .agent.service import AgentService
+
+
+# =============================================================================
+# AgentCard 정의
+# =============================================================================
+
+AGENT_CARD = AgentCard(
+    name="GraphRAG Agent",
+    description=(
+        "Neo4j 그래프 데이터베이스 기반 GraphRAG 에이전트. "
+        "영화, 배우, 감독, 장르 정보를 자연어로 검색합니다. "
+        "Query Router를 통해 자동으로 최적의 RAG 파이프라인을 선택합니다."
+    ),
+    version="1.0.0",
+    url="http://localhost:9000",
+    default_input_modes=["text/plain", "application/json"],
+    default_output_modes=["text/plain", "application/json"],
+    capabilities=AgentCapabilities(
+        streaming=False,
+        push_notifications=False,
+    ),
+    skills=[
+        AgentSkill(
+            id="graphrag_query",
+            name="GraphRAG Query",
+            description=(
+                "자연어로 Neo4j 영화 데이터베이스를 쿼리합니다. "
+                "Query Router가 자동으로 Cypher/Vector/Hybrid/LLM-only 중 "
+                "최적의 파이프라인을 선택합니다."
+            ),
+            tags=["graphrag", "neo4j", "movie", "query"],
+            examples=[
+                "Which actors appeared in The Matrix?",
+                "What movies did Tom Hanks star in?",
+                "슬픈 영화 추천해줘",
+                "90년대 액션 영화 중 평점 높은 것",
+            ],
+            input_modes=["text/plain"],
+            output_modes=["text/plain", "application/json"],
+        ),
+        AgentSkill(
+            id="graphrag_agent",
+            name="GraphRAG ReAct Agent",
+            description=(
+                "복잡한 질문에 대해 multi-step reasoning을 수행합니다. "
+                "여러 도구를 조합하여 단계적으로 답변을 생성합니다."
+            ),
+            tags=["agent", "react", "multi-step", "reasoning"],
+            examples=[
+                "Tom Hanks와 비슷한 배우가 출연한 SF 영화는?",
+                "가장 많은 장르에 출연한 배우는 누구인가?",
+            ],
+            input_modes=["text/plain"],
+            output_modes=["text/plain", "application/json"],
+        ),
+    ],
+)
+
+
+# =============================================================================
+# AgentExecutor 구현
+# =============================================================================
+
+class GraphRAGAgentExecutor(AgentExecutor):
+    """GraphRAG 비즈니스 로직을 A2A 프로토콜에 연결하는 실행기"""
+
+    def __init__(self):
+        self._service: GraphRAGService | None = None
+        self._agent_service: AgentService | None = None
+
+    def _get_service(self) -> GraphRAGService:
+        if self._service is None:
+            self._service = get_service()
+        return self._service
+
+    def _get_agent_service(self) -> AgentService:
+        if self._agent_service is None:
+            self._agent_service = AgentService(self._get_service())
+        return self._agent_service
+
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        """A2A 요청 처리"""
+        # 사용자 메시지에서 텍스트 추출
+        query = self._extract_text(context.message)
+        if not query:
+            await self._send_error(context, event_queue, "메시지에서 텍스트를 추출할 수 없습니다.")
+            return
+
+        # skill_id나 metadata로 agent 모드 판별
+        use_agent = self._should_use_agent(context)
+
+        try:
+            session_id = context.context_id or "a2a-default"
+
+            if use_agent:
+                agent = self._get_agent_service()
+                result = await agent.query_async(
+                    query_text=query, session_id=session_id
+                )
+                # Agent 응답: 텍스트 + 구조화 데이터
+                data = {
+                    "thoughts": result.thoughts,
+                    "tool_calls": result.tool_calls,
+                    "iterations": result.iterations,
+                }
+                if result.token_usage:
+                    data["token_usage"] = {
+                        "total_tokens": result.token_usage.total_tokens,
+                        "prompt_tokens": result.token_usage.prompt_tokens,
+                        "completion_tokens": result.token_usage.completion_tokens,
+                        "total_cost": result.token_usage.total_cost,
+                    }
+                parts = [
+                    Part(root=TextPart(text=result.answer)),
+                    Part(root=DataPart(data=data)),
+                ]
+            else:
+                service = self._get_service()
+                result = await service.query_async(
+                    query_text=query, session_id=session_id
+                )
+                # Query 응답: 텍스트 + 구조화 데이터
+                data = {
+                    "cypher": result.cypher,
+                    "context": result.context,
+                    "route": result.route,
+                    "route_reasoning": result.route_reasoning,
+                }
+                if result.token_usage:
+                    data["token_usage"] = {
+                        "total_tokens": result.token_usage.total_tokens,
+                        "prompt_tokens": result.token_usage.prompt_tokens,
+                        "completion_tokens": result.token_usage.completion_tokens,
+                        "total_cost": result.token_usage.total_cost,
+                    }
+                parts = [
+                    Part(root=TextPart(text=result.answer)),
+                    Part(root=DataPart(data=data)),
+                ]
+
+            # 응답 메시지 전송
+            response = new_agent_parts_message(
+                parts=parts,
+                context_id=context.context_id,
+                task_id=context.task_id,
+            )
+            await event_queue.enqueue_event(response)
+
+            # 완료 상태 업데이트
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    context_id=context.context_id or "",
+                    final=True,
+                    status=TaskStatus(state=TaskState.completed),
+                )
+            )
+
+        except Exception as e:
+            await self._send_error(context, event_queue, str(e))
+
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        """태스크 취소 처리"""
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                context_id=context.context_id or "",
+                final=True,
+                status=TaskStatus(state=TaskState.canceled),
+            )
+        )
+
+    def _extract_text(self, message) -> str:
+        """메시지에서 텍스트 추출"""
+        texts = []
+        if message and message.parts:
+            for part in message.parts:
+                if hasattr(part.root, "text"):
+                    texts.append(part.root.text)
+        return " ".join(texts)
+
+    def _should_use_agent(self, context: RequestContext) -> bool:
+        """Agent 모드 사용 여부 판별"""
+        if context.message and context.message.metadata:
+            skill = context.message.metadata.get("skill_id", "")
+            if skill == "graphrag_agent":
+                return True
+        return False
+
+    async def _send_error(
+        self, context: RequestContext, event_queue: EventQueue, error_msg: str
+    ) -> None:
+        """에러 응답 전송"""
+        error_message = new_agent_text_message(
+            f"Error: {error_msg}",
+            context_id=context.context_id,
+            task_id=context.task_id,
+        )
+        await event_queue.enqueue_event(error_message)
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                context_id=context.context_id or "",
+                final=True,
+                status=TaskStatus(state=TaskState.failed),
+            )
+        )
+
+
+# =============================================================================
+# 서버 실행
+# =============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="GraphRAG A2A Server")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=9000)
+    args = parser.parse_args()
+
+    # AgentCard URL 업데이트
+    agent_card = AGENT_CARD.model_copy()
+    agent_card.url = f"http://{args.host}:{args.port}"
+
+    # A2A 서버 구성
+    executor = GraphRAGAgentExecutor()
+    request_handler = DefaultRequestHandler(
+        agent_executor=executor,
+        task_store=InMemoryTaskStore(),
+    )
+    a2a_app = A2AStarletteApplication(
+        agent_card=agent_card,
+        http_handler=request_handler,
+    )
+
+    print(f"GraphRAG A2A Server starting...")
+    print(f"URL: http://localhost:{args.port}")
+    print(f"AgentCard: http://localhost:{args.port}/.well-known/agent.json")
+    print(f"Skills: {[s.id for s in AGENT_CARD.skills]}")
+
+    uvicorn.run(a2a_app.build(), host=args.host, port=args.port)
+
+
+if __name__ == "__main__":
+    main()

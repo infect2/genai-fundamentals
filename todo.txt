@@ -1,0 +1,17 @@
+[완료] token 추적 가능한 구조로 변경
+[포기] query당 max token 지정하는 것은 open ai api 미지원으로 진행 포기
+[완료] chainlit에 로그인 기능 구현 (google 계정)
+[완료] context 관리 기능(메몰 session 뿐만 아니라, DB에 적재하는 기능)
+[완료] 사용자별 session 관리 기능 구현
+[완료] 명시적 기억 / 메모 기능
+[완료] service 파일 리팩토링. route type에 따라 파일.모듈 분리
+[완료] Multi agent system 으로 구조 변경: Agent2Agent (A2A) Protocol
+[검증] Open AI이외에 bedrock등을 수용가능한 구조로 고도화
+[예정] Google 첫 로그인시 첫 로그인 메세지 추가
+[예정] Multi agent orchestrotor로서 super agent로 고도화
+[예정] Multi service support (TMS, WMS, FMS, TAP!) TMS는 MCP 인터페이스 제공하는 Action Agent를 제공
+[예정] Secure programming
+[예정] ontology layer https://medium.com/@cloudpankaj/the-2026-agent-stack-why-ontologies-just-became-mission-critical-eb8a4a78dd45
+- Semantic validation
+- Business rule enforcement
+- Schema abstraction

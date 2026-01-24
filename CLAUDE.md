@@ -14,7 +14,7 @@ This repository accompanies the [Neo4j and GenerativeAI Fundamentals course](htt
 pip install -r requirements.txt
 
 # Verify environment is configured correctly
-python -m genai-fundamentals.tools.test_environment
+python -m genai-fundamentals.tools.verify_environment
 ```
 
 ### Running Tests
@@ -244,8 +244,8 @@ genai-fundamentals/
 │   └── text2cypher_rag.py      # Text-to-Cypher RAG
 ├── tools/                      # 유틸리티 도구
 │   ├── __init__.py
-│   ├── test_environment.py     # Environment configuration test
-│   ├── test_local_neo4j.py     # Local Neo4j connection test
+│   ├── verify_environment.py   # Environment configuration test
+│   ├── verify_local_neo4j.py   # Local Neo4j connection test
 │   ├── load_movie_data.py      # Sample movie data loader
 │   └── mine_evaluator.py       # MINE ontology validator
 └── solutions/                  # Complete working implementations
@@ -933,7 +933,7 @@ Graph Statistics:
 
 ### 연결 테스트
 ```bash
-python -m genai-fundamentals.tools.test_local_neo4j
+python -m genai-fundamentals.tools.verify_local_neo4j
 ```
 
 ### 샘플 데이터 로드

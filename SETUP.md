@@ -10,4 +10,4 @@ You will need to:
 
 1. Create a new [`.env`](.env) file and copy the contents of the [`.env.example`](.env.example) file into it
 2. Update the environment values in the [`.env`](.env) file with the values in the [Setup Instructions](https://graphacademy.neo4j.com/courses/genai-fundamentals/4-integrating-neo4j/1-neo4j-graphrag/)
-3. Run the [`genai-fundamentals/test_environment.py`](./genai-fundamentals/test_environment.py) program to check the environment is set up correctly.
+3. Run the [`genai-fundamentals/tools/verify_environment.py`](./genai-fundamentals/tools/verify_environment.py) program to check the environment is set up correctly.

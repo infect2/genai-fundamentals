@@ -4,7 +4,7 @@
 # 로컬에 설치된 Neo4j 데이터베이스 연결을 테스트합니다.
 #
 # 실행 방법:
-#   python -m genai-fundamentals.test_local_neo4j
+#   python -m genai-fundamentals.tools.verify_local_neo4j
 #
 # 로컬 Neo4j 기본 설정:
 #   - URI: bolt://localhost:7687

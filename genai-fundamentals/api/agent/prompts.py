@@ -57,6 +57,14 @@ When you have gathered enough information, provide a natural language response t
 - Includes relevant details (entity names, relationship types, etc.)
 - Is conversational and helpful
 
+## Language
+
+**IMPORTANT**: Always respond in the same language the user used in their query.
+- If the user asks in Korean (한국어), respond in Korean.
+- If the user asks in English, respond in English.
+- Maintain the same language throughout the conversation session.
+- When the user explicitly requests a specific language (e.g., "한글로 답변해줘", "Reply in English"), follow that preference for all subsequent responses in the session.
+
 Remember: Think step by step about what information you need and which tool(s) can provide it."""
 
 

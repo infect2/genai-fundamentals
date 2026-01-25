@@ -1,4 +1,4 @@
-= Capora AI Ontology Bot
+= AI Ontology Bot Reference Implementation
 
 지식 그래프 기반 AI 에이전트 시스템입니다. Neo4j 그래프 데이터베이스와 LLM을 활용하여 온톨로지 기반 데이터를 자연어로 검색하고 분석합니다.
 
@@ -59,15 +59,15 @@ curl http://localhost:9000/.well-known/agent.json
 
 ----
 ┌─────────────────────────────────────────────────────┐
-│                  Capora AI Ontology Bot             │
+│                   AI Ontology Bot                   │
 ├─────────────────────────────────────────────────────┤
-│  Clients: REST API | MCP | A2A | Streamlit | Chainlit │
+│  Clients: REST API | MCP | A2A | Streamlit|Chainlit │
 ├─────────────────────────────────────────────────────┤
 │  ReAct Agent (LangGraph)                            │
-│  ├─ cypher_query: 엔티티/관계 조회                    │
-│  ├─ vector_search: 시맨틱 검색                       │
-│  ├─ hybrid_search: 복합 검색                         │
-│  └─ get_schema: 스키마 조회                          │
+│  ├─ cypher_query: 엔티티/관계 조회                      │
+│  ├─ vector_search: 시맨틱 검색                         │
+│  ├─ hybrid_search: 복합 검색                          │
+│  └─ get_schema: 스키마 조회                            │
 ├─────────────────────────────────────────────────────┤
 │  Neo4j Graph Database | LLM Provider (OpenAI/etc)   │
 └─────────────────────────────────────────────────────┘

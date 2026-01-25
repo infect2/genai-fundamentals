@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Plan 저장 규칙
+
+Plan 모드에서 계획을 작성할 때, `docs/` 디렉토리에도 복사본을 저장한다.
+파일명 형식: `docs/<plan-name>.md`
+
 ## Project Overview
 
 This repository accompanies the [Neo4j and GenerativeAI Fundamentals course](https://graphacademy.neo4j.com/courses/genai-fundamentals) on GraphAcademy. It teaches how to build GraphRAG applications using Neo4j and OpenAI.

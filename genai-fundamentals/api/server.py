@@ -17,7 +17,9 @@ FastAPI 기반의 REST API 서버입니다.
     uvicorn genai-fundamentals.api.server:app --reload
 """
 
-from fastapi import FastAPI, HTTPException
+import time
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -25,6 +27,9 @@ from typing import Optional
 # GraphRAG 서비스 모듈 임포트
 from .graphrag_service import GraphRAGService, get_service
 from .agent import AgentService
+
+# Elasticsearch 로깅 모듈 임포트
+from .logging import ElasticsearchLoggingMiddleware, log_agent_response, ES_ENABLED
 
 
 # =============================================================================
@@ -36,6 +41,9 @@ app = FastAPI(
     description="REST API for querying Neo4j using natural language with LangChain",
     version="2.0.0"
 )
+
+# Elasticsearch 로깅 미들웨어 등록
+app.add_middleware(ElasticsearchLoggingMiddleware)
 
 # GraphRAG 서비스 인스턴스 (싱글톤)
 service: GraphRAGService = None
@@ -177,7 +185,7 @@ def get_history(session_id: str):
 
 
 @app.post("/agent/query")
-async def agent_query(request: AgentQueryRequest):
+async def agent_query(request: AgentQueryRequest, req: Request):
     """
     ReAct Agent를 사용한 자연어 쿼리 처리 엔드포인트
 
@@ -191,6 +199,7 @@ async def agent_query(request: AgentQueryRequest):
 
     Args:
         request: AgentQueryRequest 객체
+        req: FastAPI Request 객체 (로깅용)
 
     Returns:
         AgentQueryResponse 또는 StreamingResponse
@@ -198,6 +207,10 @@ async def agent_query(request: AgentQueryRequest):
     Raises:
         HTTPException: 처리 중 오류 발생 시 500 에러
     """
+    # Request ID 가져오기 (미들웨어에서 설정)
+    request_id = getattr(req.state, "request_id", "unknown")
+    start_time = time.time()
+
     try:
         if request.stream:
             # 스트리밍 응답: Server-Sent Events (SSE)
@@ -214,6 +227,21 @@ async def agent_query(request: AgentQueryRequest):
                 query_text=request.query,
                 session_id=request.session_id
             )
+
+            # 처리 시간 계산
+            duration_ms = (time.time() - start_time) * 1000
+
+            # Elasticsearch에 상세 Agent 응답 로깅
+            if ES_ENABLED:
+                await log_agent_response(
+                    request_id=request_id,
+                    request=req,
+                    query=request.query,
+                    session_id=request.session_id,
+                    stream=request.stream,
+                    result=result,
+                    duration_ms=duration_ms
+                )
 
             token_usage = None
             if result.token_usage:

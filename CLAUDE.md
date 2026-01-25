@@ -279,13 +279,18 @@ genai-fundamentals/
 │   │   ├── hybrid.py           # Hybrid RAG (Vector + Cypher)
 │   │   ├── llm_only.py         # LLM Only (직접 응답)
 │   │   └── memory.py           # Memory (사용자 정보 저장/조회)
-│   └── agent/                  # ReAct Agent (LangGraph 기반)
-│       ├── __init__.py
-│       ├── graph.py            # LangGraph StateGraph 정의
-│       ├── state.py            # AgentState TypedDict
-│       ├── tools.py            # Agent 도구 정의
-│       ├── prompts.py          # ReAct 시스템 프롬프트
-│       └── service.py          # AgentService 클래스
+│   ├── agent/                  # ReAct Agent (LangGraph 기반)
+│   │   ├── __init__.py
+│   │   ├── graph.py            # LangGraph StateGraph 정의
+│   │   ├── state.py            # AgentState TypedDict
+│   │   ├── tools.py            # Agent 도구 정의
+│   │   ├── prompts.py          # ReAct 시스템 프롬프트
+│   │   └── service.py          # AgentService 클래스
+│   └── logging/                # Elasticsearch 로깅
+│       ├── __init__.py         # 모듈 exports
+│       ├── config.py           # ES 클라이언트 설정
+│       ├── schemas.py          # 로그 스키마 정의
+│       └── middleware.py       # FastAPI 미들웨어
 ├── clients/                    # 채팅 클라이언트
 │   ├── __init__.py
 │   ├── chainlit_app.py         # Chainlit chat interface
@@ -655,6 +660,157 @@ class TokenUsage:
 | `api/mcp_server.py` | 응답 JSON에 token_usage 포함 |
 | `api/a2a_server.py` | 응답 DataPart에 token_usage 포함 |
 
+## Elasticsearch Logging
+
+REST API의 모든 request/response를 Elasticsearch로 전송하여 실시간 추적 및 검색할 수 있습니다.
+
+### 아키텍처
+
+```
+Request → FastAPI Middleware → Agent Service → Response
+              ↓                    ↓              ↓
+         [request 로깅]      [domain 로깅]   [response 로깅]
+              ↓                    ↓              ↓
+              └──────────→ Elasticsearch ←────────┘
+```
+
+### 환경변수 설정
+
+```bash
+# .env 파일에서 설정
+ES_LOGGING_ENABLED=true       # 로깅 활성화
+ES_HOST=localhost             # Elasticsearch 호스트
+ES_PORT=9200                  # Elasticsearch 포트
+ES_INDEX_PREFIX=graphrag-logs # 인덱스 접두사
+ES_API_KEY=                   # API 키 (인증 필요 시)
+```
+
+### 인덱스 패턴
+
+- 인덱스명: `graphrag-logs-YYYY.MM.DD`
+- 일별 자동 롤오버로 관리 용이
+
+### 로그 이벤트 유형
+
+| event_type | 설명 |
+|------------|------|
+| `request` | HTTP 요청 시작 시 |
+| `response` | HTTP 응답 완료 시 |
+| `agent_response` | Agent 쿼리 상세 응답 (thoughts, tool_calls 포함) |
+| `error` | 에러 발생 시 |
+
+### 로그 스키마
+
+```json
+{
+  "timestamp": "2024-01-25T12:00:00.000Z",
+  "request_id": "abc12345",
+  "event_type": "agent_response",
+  "http": {
+    "method": "POST",
+    "path": "/agent/query",
+    "status_code": 200,
+    "duration_ms": 1500.5
+  },
+  "request": {
+    "query": "Which actors appeared in The Matrix?",
+    "session_id": "user123",
+    "stream": false
+  },
+  "response": {
+    "answer": "The actors who appeared in The Matrix..."
+  },
+  "agent": {
+    "thoughts": ["Searching for actors..."],
+    "tool_calls": [{"name": "cypher_query", "args": {...}}],
+    "iterations": 2
+  },
+  "token_usage": {
+    "total_tokens": 1500,
+    "prompt_tokens": 1200,
+    "completion_tokens": 300,
+    "total_cost": 0.0075
+  },
+  "client": {
+    "ip": "127.0.0.1",
+    "user_agent": "curl/7.79.1"
+  }
+}
+```
+
+### Elasticsearch 실행 (Docker)
+
+```bash
+# Elasticsearch 실행
+docker run -d -p 9200:9200 -e "discovery.type=single-node" \
+  -e "xpack.security.enabled=false" \
+  elasticsearch:8.11.0
+
+# 연결 확인
+curl http://localhost:9200
+```
+
+### 로그 검색 예시 (Kibana/ES Query)
+
+```json
+// 특정 세션의 모든 쿼리
+GET graphrag-logs-*/_search
+{
+  "query": {
+    "term": { "request.session_id": "user123" }
+  }
+}
+
+// 에러 조회
+GET graphrag-logs-*/_search
+{
+  "query": {
+    "term": { "event_type": "error" }
+  }
+}
+
+// 느린 쿼리 (5초 이상)
+GET graphrag-logs-*/_search
+{
+  "query": {
+    "range": { "http.duration_ms": { "gte": 5000 } }
+  }
+}
+```
+
+### 주요 파일
+
+| 파일 | 역할 |
+|------|------|
+| `api/logging/__init__.py` | 모듈 exports |
+| `api/logging/config.py` | Elasticsearch 클라이언트 설정 |
+| `api/logging/schemas.py` | 로그 스키마 정의 (Pydantic) |
+| `api/logging/middleware.py` | FastAPI 미들웨어 |
+
+### 검증 방법
+
+```bash
+# 1. Elasticsearch 실행
+docker run -d -p 9200:9200 -e "discovery.type=single-node" \
+  -e "xpack.security.enabled=false" elasticsearch:8.11.0
+
+# 2. 환경변수 설정
+export ES_LOGGING_ENABLED=true
+export ES_HOST=localhost
+export ES_PORT=9200
+
+# 3. 서버 시작
+python -m genai-fundamentals.api.server
+
+# 4. 테스트 쿼리
+curl -X POST http://localhost:8000/agent/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Who directed The Matrix?"}'
+
+# 5. ES에서 로그 확인
+curl http://localhost:9200/graphrag-logs-*/_search | python -m json.tool
+```
+
 ## Configuration
 
 Environment variables required in `.env` file (see `.env.example`):
@@ -751,6 +907,7 @@ Key packages in `requirements.txt`:
 - `a2a-sdk[http-server]` - A2A (Agent2Agent) Protocol server
 - `streamlit`, `chainlit` - Chat client UI frameworks
 - `python-dotenv` - Environment variable management
+- `elasticsearch` - Elasticsearch logging (optional)
 
 ## Test Framework
 

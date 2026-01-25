@@ -139,7 +139,7 @@ class TestMCPServerBasic:
         assert result["protocolVersion"] == "2024-11-05"
 
         # 서버 정보 확인
-        assert result["serverInfo"]["name"] == "graphrag-mcp"
+        assert result["serverInfo"]["name"] == "capora-mcp"
 
         # 도구 기능 확인
         assert "tools" in result["capabilities"]

@@ -282,7 +282,9 @@ class TestAgentAPIIntegration:
         load_dotenv()
 
         app = importlib.import_module("genai-fundamentals.api.server").app
-        return TestClient(app)
+        # TestClient를 context manager로 사용해야 startup 이벤트가 실행됨
+        with TestClient(app) as client:
+            yield client
 
     def test_agent_query_endpoint(self, client):
         """POST /agent/query 엔드포인트 테스트"""

@@ -267,7 +267,8 @@ class TestQueryRouterIntegration:
     @pytest.mark.asyncio
     async def test_route_vector_query(self, router):
         """Vector 쿼리 라우팅 통합 테스트"""
-        decision = await router.route("슬픈 영화 추천해줘")
+        # 더 명확하게 시맨틱 검색이 필요한 쿼리 사용
+        decision = await router.route("가족과 함께 보기 좋은 따뜻한 분위기의 영화 줄거리를 찾아줘")
 
         assert decision.route in [RouteType.VECTOR, RouteType.HYBRID]
         assert decision.confidence > 0

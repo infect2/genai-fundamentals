@@ -41,3 +41,6 @@ certs/
 
 # Claude local config
 .claude/
+
+# Generated OWL data
+data/

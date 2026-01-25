@@ -309,7 +309,9 @@ genai-fundamentals/
 │   ├── verify_environment.py   # Environment configuration test
 │   ├── verify_local_neo4j.py   # Local Neo4j connection test
 │   ├── load_movie_data.py      # Sample movie data loader
-│   └── mine_evaluator.py       # MINE ontology validator
+│   ├── mine_evaluator.py       # MINE ontology validator
+│   ├── generate_middlemile_owl.py  # Middlemile 물류 OWL 온톨로지 생성기
+│   └── owl_to_neo4j.py         # OWL → Neo4j 변환 로더
 └── solutions/                  # Complete working implementations
 ```
 
@@ -911,6 +913,7 @@ Key packages in `requirements.txt`:
 - `streamlit`, `chainlit` - Chat client UI frameworks
 - `python-dotenv` - Environment variable management
 - `elasticsearch` - Elasticsearch logging (optional)
+- `rdflib` - OWL/RDF ontology generation and parsing
 
 ## Test Framework
 
@@ -1047,3 +1050,269 @@ python -m genai-fundamentals.tools.load_movie_data
 2. `.env` 파일에서 URI 설정:
    - 로컬 직접 실행: `NEO4J_URI="neo4j://127.0.0.1:7687"`
    - Docker에서 호스트 연결: `NEO4J_URI="neo4j://host.docker.internal:7687"`
+
+## Middlemile Logistics OWL 생성기
+
+Middlemile 물류 시스템을 위한 OWL 온톨로지 데이터를 생성하는 도구입니다.
+Neo4j에 로드하기 위한 테스트 데이터를 OWL/Turtle 형식으로 생성합니다.
+
+### 실행 방법
+
+```bash
+# 기본 실행 (화주 100, 운송사 100, 배송 500건)
+python -m genai-fundamentals.tools.generate_middlemile_owl
+
+# 커스텀 수량 지정
+python -m genai-fundamentals.tools.generate_middlemile_owl [화주수] [운송사수] [배송수]
+python -m genai-fundamentals.tools.generate_middlemile_owl 50 50 200
+```
+
+### 출력 파일
+
+| 파일 | 형식 | 설명 |
+|------|------|------|
+| `data/middlemile_ontology.owl` | RDF/XML | OWL 온톨로지 파일 |
+| `data/middlemile_ontology.ttl` | Turtle | 사람이 읽기 쉬운 형식 |
+
+### 온톨로지 스키마
+
+**Classes (클래스):**
+| 클래스 | 한국어 | 설명 |
+|--------|--------|------|
+| `Shipper` | 화주 | 화물을 보내는 기업/개인 |
+| `Carrier` | 운송사 | 운송 서비스를 제공하는 기업 |
+| `Vehicle` | 차량 | 운송사가 보유한 차량 |
+| `Cargo` | 화물 | 운송 대상 물품 |
+| `Location` | 위치 | 물류 관련 장소 (상위 클래스) |
+| `LogisticsCenter` | 물류센터 | 화물 집하/분류 시설 |
+| `Port` | 항구 | 해상 운송 항만 |
+| `Shipment` | 배송 | 화물 운송 건 |
+| `MatchingService` | 매칭서비스 | 화주-운송사 매칭 |
+| `PricingService` | 가격책정서비스 | 동적 가격 책정 |
+| `ConsolidationService` | 합적서비스 | 화물 합적 |
+
+**Object Properties (관계):**
+| 속성 | 설명 | Domain → Range |
+|------|------|----------------|
+| `owns` | 소유 | Shipper → Cargo |
+| `operates` | 운영 | Carrier → Vehicle |
+| `assignedTo` | 배정 | Shipment → Vehicle |
+| `contains` | 포함 | Shipment → Cargo |
+| `origin` | 출발지 | Shipment → Location |
+| `destination` | 목적지 | Shipment → Location |
+| `requestedBy` | 요청자 | Shipment → Shipper |
+| `fulfilledBy` | 수행자 | Shipment → Carrier |
+| `matchesShipper` | 화주매칭 | MatchingService → Shipper |
+| `matchesCarrier` | 운송사매칭 | MatchingService → Carrier |
+| `consolidates` | 합적화물 | ConsolidationService → Cargo |
+| `prices` | 가격책정대상 | PricingService → Shipment |
+| `locatedAt` | 위치함 | Carrier → Location |
+| `servesRegion` | 서비스지역 | Carrier → Location |
+
+### 생성되는 데이터
+
+| 항목 | 기본 수량 | 설명 |
+|------|----------|------|
+| 화주 (Shipper) | 100개 | 한국 기업명 기반 |
+| 운송사 (Carrier) | 100개 | 물류 회사명 기반 |
+| 차량 (Vehicle) | 1~100대/운송사 | 10종 차량 유형 |
+| 물류센터 | 15개 | 대한민국 주요 물류센터 |
+| 항구 | 10개 | 대한민국 주요 항구 |
+| 배송 (Shipment) | 500건 | 6가지 상태 |
+| 매칭서비스 | 200건 | 화주-운송사 매칭 |
+| 가격책정 | 300건 | 동적 가격 |
+| 합적서비스 | 50건 | 2~5개 화물 합적 |
+
+### 차량 유형
+
+| 유형 | 적재용량(kg) | 적재용량(m³) |
+|------|-------------|-------------|
+| 1톤 트럭 | 1,000 | 3.5 |
+| 2.5톤 트럭 | 2,500 | 8.5 |
+| 5톤 트럭 | 5,000 | 17.0 |
+| 11톤 트럭 | 11,000 | 36.0 |
+| 25톤 트럭 | 25,000 | 65.0 |
+| 윙바디 | 15,000 | 50.0 |
+| 냉동/냉장차 | 8,000 | 28.0 |
+| 컨테이너 | 20,000 | 60.0 |
+| 탱크로리 | 18,000 | 30.0 |
+| 평판차 | 12,000 | 40.0 |
+
+### 배송 상태
+
+| 상태 | 설명 |
+|------|------|
+| `requested` | 요청됨 |
+| `matched` | 매칭됨 |
+| `pickup_pending` | 픽업 대기 |
+| `in_transit` | 운송 중 |
+| `delivered` | 배송 완료 |
+| `cancelled` | 취소됨 |
+
+### 네임스페이스
+
+| Prefix | URI |
+|--------|-----|
+| `mm:` | `http://capora.ai/ontology/middlemile#` |
+| `mmi:` | `http://capora.ai/ontology/middlemile/instance#` |
+
+### 사용 예시 (Python)
+
+```python
+from rdflib import Graph
+
+# OWL 파일 로드
+g = Graph()
+g.parse("data/middlemile_ontology.ttl", format="turtle")
+
+# 모든 화주 조회
+for shipper in g.subjects(RDF.type, MM.Shipper):
+    name = g.value(shipper, MM.name)
+    print(f"화주: {name}")
+
+# 특정 운송사의 차량 조회
+for vehicle in g.objects(carrier_uri, MM.operates):
+    plate = g.value(vehicle, MM.licensePlate)
+    print(f"차량: {plate}")
+```
+
+## OWL to Neo4j 변환기
+
+OWL/RDF 온톨로지 파일을 Neo4j 그래프 데이터베이스로 변환하여 로드하는 도구입니다.
+
+### 실행 방법
+
+```bash
+# 기본 실행 (data/middlemile_ontology.ttl 파일 로드)
+python -m genai-fundamentals.tools.owl_to_neo4j
+
+# 특정 파일 지정
+python -m genai-fundamentals.tools.owl_to_neo4j data/middlemile_ontology.owl
+
+# 기존 데이터 삭제 후 로드
+python -m genai-fundamentals.tools.owl_to_neo4j data/middlemile_ontology.ttl --clear
+
+# Neo4j 연결 정보 지정
+python -m genai-fundamentals.tools.owl_to_neo4j --uri neo4j://localhost:7687 --username neo4j --password mypassword
+```
+
+### 지원 포맷
+
+| 확장자 | 포맷 |
+|--------|------|
+| `.ttl` | Turtle |
+| `.owl` | RDF/XML |
+| `.rdf` | RDF/XML |
+| `.xml` | RDF/XML |
+| `.nt` | N-Triples |
+| `.n3` | Notation3 |
+
+### 변환 규칙
+
+| OWL/RDF | Neo4j | 예시 |
+|---------|-------|------|
+| Class Instance | Node (라벨=클래스명) | `mm:Shipper` → `(:Shipper)` |
+| Object Property | Relationship | `mm:operates` → `[:OPERATES]` |
+| Data Property | Node Property | `mm:name` → `{name: "..."}` |
+| URI local name | `uri` 속성 | `mmi:Shipper_001` → `{uri: "Shipper_001"}` |
+| rdfs:label@ko | `name` 속성 (한국어 우선) | `"한진 상사"@ko` → `{name: "한진 상사"}` |
+
+### 관계 타입 변환
+
+| OWL Property | Neo4j Relationship |
+|--------------|-------------------|
+| `mm:owns` | `[:OWNS]` |
+| `mm:operates` | `[:OPERATES]` |
+| `mm:assignedTo` | `[:ASSIGNED_TO]` |
+| `mm:requestedBy` | `[:REQUESTED_BY]` |
+| `mm:fulfilledBy` | `[:FULFILLED_BY]` |
+| `mm:matchesShipper` | `[:MATCHES_SHIPPER]` |
+| `mm:matchesCarrier` | `[:MATCHES_CARRIER]` |
+
+### 환경변수
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `NEO4J_URI` | `neo4j://127.0.0.1:7687` | Neo4j 연결 URI |
+| `NEO4J_USERNAME` | `neo4j` | Neo4j 사용자명 |
+| `NEO4J_PASSWORD` | - | Neo4j 비밀번호 |
+
+### 전체 워크플로우
+
+```bash
+# 1. OWL 데이터 생성
+python -m genai-fundamentals.tools.generate_middlemile_owl
+
+# 2. Neo4j에 로드 (기존 데이터 삭제)
+python -m genai-fundamentals.tools.owl_to_neo4j --clear
+
+# 3. Neo4j Browser에서 확인
+# http://localhost:7474
+# MATCH (n) RETURN n LIMIT 100
+```
+
+### 샘플 Cypher 쿼리
+
+```cypher
+-- 모든 화주 조회
+MATCH (s:Shipper) RETURN s LIMIT 10
+
+-- 운송사와 보유 차량
+MATCH (c:Carrier)-[:OPERATES]->(v:Vehicle)
+RETURN c.name, count(v) as vehicles
+ORDER BY vehicles DESC
+
+-- 특정 배송의 전체 경로
+MATCH (shipper:Shipper)<-[:REQUESTED_BY]-(s:Shipment)-[:FULFILLED_BY]->(carrier:Carrier)
+MATCH (s)-[:ORIGIN]->(origin:Location)
+MATCH (s)-[:DESTINATION]->(dest:Location)
+MATCH (s)-[:ASSIGNED_TO]->(vehicle:Vehicle)
+MATCH (s)-[:CONTAINS]->(cargo:Cargo)
+RETURN shipper.name, carrier.name, origin.name, dest.name,
+       vehicle.licensePlate, cargo.cargoType, s.status
+
+-- 지역별 물류센터
+MATCH (lc:LogisticsCenter)
+RETURN lc.name, lc.address, lc.latitude, lc.longitude
+
+-- 화주-운송사 매칭 현황
+MATCH (m:MatchingService)-[:MATCHES_SHIPPER]->(s:Shipper)
+MATCH (m)-[:MATCHES_CARRIER]->(c:Carrier)
+RETURN s.name as shipper, c.name as carrier, m.matchScore
+ORDER BY m.matchScore DESC
+
+-- 합적 서비스 현황
+MATCH (cs:ConsolidationService)-[:CONSOLIDATES]->(cargo:Cargo)
+RETURN cs.uri, collect(cargo.cargoType) as cargos, count(cargo) as count
+```
+
+### 출력 예시
+
+```
+============================================================
+OWL to Neo4j 변환
+============================================================
+
+입력 파일: data/middlemile_ontology.ttl
+Neo4j URI: neo4j://127.0.0.1:7687
+
+1. OWL 파일 로드 중...
+   - 4,836개 트리플 로드 완료
+
+2. RDF 데이터 파싱 중...
+   트리플 분석 중...
+   - 노드: 700개
+   - 관계: 1,245개
+
+...
+
+============================================================
+변환 완료!
+============================================================
+
+통계:
+  - 총 트리플 수: 4,836
+  - 생성된 노드: 700
+  - 생성된 관계: 1,245
+  - 설정된 속성: 3,500
+```

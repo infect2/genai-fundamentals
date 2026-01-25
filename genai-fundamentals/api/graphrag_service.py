@@ -128,7 +128,8 @@ class GraphRAGService:
             cypher_prompt=self._cypher_prompt,
             verbose=False,
             return_intermediate_steps=True,
-            allow_dangerous_requests=False  # Security: 위험한 Cypher 쿼리 차단
+            allow_dangerous_requests=True  # Required: LangChain safety acknowledgment
+            # Security Note: Use read-only Neo4j user for protection
         )
 
         self._streaming_chain = GraphCypherQAChain.from_llm(
@@ -137,7 +138,8 @@ class GraphRAGService:
             cypher_prompt=self._cypher_prompt,
             verbose=False,
             return_intermediate_steps=True,
-            allow_dangerous_requests=False  # Security: 위험한 Cypher 쿼리 차단
+            allow_dangerous_requests=True  # Required: LangChain safety acknowledgment
+            # Security Note: Use read-only Neo4j user for protection
         )
 
         # Query Router 초기화

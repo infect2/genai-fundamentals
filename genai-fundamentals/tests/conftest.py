@@ -7,10 +7,6 @@ pytest-asyncio 설정 및 테스트 픽스처
 import pytest
 
 
-# pytest-asyncio 설정
-pytest_plugins = ('pytest_asyncio',)
-
-
 def pytest_configure(config):
     """pytest 설정 - asyncio 모드를 auto로 설정"""
     config.addinivalue_line(

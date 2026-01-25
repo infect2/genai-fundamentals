@@ -8,6 +8,9 @@ from pytest import MonkeyPatch
 
 from dotenv import load_dotenv
 
+# pytest-asyncio 설정
+pytest_plugins = ('pytest_asyncio',)
+
 @pytest.fixture(autouse=True)
 def load_env_vars():
     load_dotenv()

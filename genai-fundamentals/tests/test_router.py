@@ -16,19 +16,20 @@ Query Router의 분류 기능과 라우팅 로직을 테스트합니다.
 
 import sys
 import os
+import importlib
 
-# Add the parent directory to sys.path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 프로젝트 루트를 sys.path에 추가
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
-from api.router import (
-    QueryRouter,
-    RouteType,
-    RouteDecision,
-    CLASSIFICATION_PROMPT
-)
+# hyphenated 패키지명은 importlib으로 로드
+_router_mod = importlib.import_module("genai-fundamentals.api.router")
+QueryRouter = _router_mod.QueryRouter
+RouteType = _router_mod.RouteType
+RouteDecision = _router_mod.RouteDecision
+CLASSIFICATION_PROMPT = _router_mod.CLASSIFICATION_PROMPT
 
 
 class TestRouteType:
@@ -43,7 +44,7 @@ class TestRouteType:
 
     def test_route_type_count(self):
         """라우트 타입 개수 확인"""
-        assert len(RouteType) == 4
+        assert len(RouteType) == 5  # CYPHER, VECTOR, HYBRID, LLM_ONLY, MEMORY
 
 
 class TestRouteDecision:
@@ -145,11 +146,9 @@ reasoning: 테스트"""
         # 기본값 0.8
         assert decision.confidence == 0.8
 
-    @patch('api.router.ChatOpenAI')
-    def test_router_initialization(self, mock_chat):
+    def test_router_initialization(self):
         """라우터 초기화 테스트"""
         mock_llm = Mock()
-        mock_chat.return_value = mock_llm
 
         router = QueryRouter(llm=mock_llm)
 

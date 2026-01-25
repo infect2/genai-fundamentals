@@ -128,7 +128,7 @@ class GraphRAGService:
             cypher_prompt=self._cypher_prompt,
             verbose=False,
             return_intermediate_steps=True,
-            allow_dangerous_requests=True
+            allow_dangerous_requests=False  # Security: 위험한 Cypher 쿼리 차단
         )
 
         self._streaming_chain = GraphCypherQAChain.from_llm(
@@ -137,7 +137,7 @@ class GraphRAGService:
             cypher_prompt=self._cypher_prompt,
             verbose=False,
             return_intermediate_steps=True,
-            allow_dangerous_requests=True
+            allow_dangerous_requests=False  # Security: 위험한 Cypher 쿼리 차단
         )
 
         # Query Router 초기화

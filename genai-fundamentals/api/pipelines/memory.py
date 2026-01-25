@@ -6,9 +6,12 @@ Neo4j UserMemory 노드에 세션별로 key-value 형태로 저장됩니다.
 """
 
 import json
+import logging
 from typing import Optional, List
 
 from ..models import QueryResult
+
+logger = logging.getLogger(__name__)
 from ..router import RouteDecision
 from ..prompts import MEMORY_EXTRACT_TEMPLATE
 
@@ -109,7 +112,19 @@ def execute(
     if content.startswith("```"):
         content = content.split("\n", 1)[1]  # 첫 줄(```json) 제거
         content = content.rsplit("```", 1)[0]  # 마지막 ``` 제거
-    parsed = json.loads(content.strip())
+
+    # Security: JSON 파싱 에러 핸들링
+    try:
+        parsed = json.loads(content.strip())
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse LLM JSON response: {e}, content: {content[:100]}")
+        return QueryResult(
+            answer="메모리 요청을 처리할 수 없습니다. 다시 시도해주세요.",
+            cypher="",
+            context=[],
+            route=route_decision.route.value,
+            route_reasoning="JSON parse error"
+        )
 
     action = parsed.get("action", "recall")
     key = parsed.get("key", "")

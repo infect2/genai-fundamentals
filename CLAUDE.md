@@ -7,6 +7,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Plan 모드에서 계획을 작성할 때, `docs/` 디렉토리에도 복사본을 저장한다.
 파일명 형식: `docs/<plan-name>.md`
 
+## Security Programming Guidelines
+
+코드를 작성하거나 수정할 때 반드시 보안 관점을 유지해야 한다.
+
+### OWASP Top 10 준수
+
+모든 코드 변경은 OWASP Top 10 가이드라인을 준수해야 한다:
+- Injection (SQL, Command, LDAP 등)
+- Broken Authentication
+- Sensitive Data Exposure
+- XML External Entities (XXE)
+- Broken Access Control
+- Security Misconfiguration
+- Cross-Site Scripting (XSS)
+- Insecure Deserialization
+- Using Components with Known Vulnerabilities
+- Insufficient Logging & Monitoring
+
+### Input Validation
+
+모든 사용자 입력은 처리 전에 검증하고 sanitize해야 한다:
+- 화이트리스트 기반 검증 선호
+- 특수 문자 이스케이프 처리
+- SQL 쿼리는 항상 parameterized query 사용
+
+### Secrets Management
+
+API 키나 credential을 절대 하드코딩하지 않는다:
+- 환경 변수 사용 (`.env` 파일)
+- 민감한 정보가 포함된 파일은 `.gitignore`에 추가
+- 커밋 전 credential 노출 여부 확인
+
+### Memory Safety (C/C++ 해당 시)
+
+- Buffer overflow 항상 체크
+- 안전한 문자열 함수 사용 (`strncpy`, `snprintf` 등)
+- 동적 메모리 할당 후 해제 확인
+
+### Security Audit
+
+코드 작성 후 mental security audit 수행:
+1. 잠재적 취약점 식별
+2. 입력 검증 누락 여부 확인
+3. 민감 정보 노출 가능성 점검
+4. 발견된 취약점 보고 및 수정
+
 ## Project Overview
 
 This repository accompanies the [Neo4j and GenerativeAI Fundamentals course](https://graphacademy.neo4j.com/courses/genai-fundamentals) on GraphAcademy. It teaches how to build GraphRAG applications using Neo4j and OpenAI.

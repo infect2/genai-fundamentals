@@ -112,6 +112,10 @@ class AgentService:
             completion_tokens=cb.completion_tokens,
             total_cost=cb.total_cost
         )
+
+        # 대화 이력 저장 (Neo4j에 영속화)
+        self._save_to_history(session_id, query_text, result.answer)
+
         return result
 
     async def query_async(
@@ -150,6 +154,10 @@ class AgentService:
             completion_tokens=cb.completion_tokens,
             total_cost=cb.total_cost
         )
+
+        # 대화 이력 저장 (Neo4j에 영속화)
+        self._save_to_history(session_id, query_text, result.answer)
+
         return result
 
     async def query_stream(
@@ -227,6 +235,9 @@ class AgentService:
                             result_content = result_content[:500] + "..."
                         yield f"data: {json.dumps({'type': 'tool_result', 'result': result_content})}\n\n"
 
+        # 대화 이력 저장 (Neo4j에 영속화)
+        self._save_to_history(session_id, query_text, final_answer)
+
         # 완료 신호 (토큰 사용량 포함)
         done_data = {"type": "done", "final_answer": final_answer}
         done_data["token_usage"] = {
@@ -277,6 +288,24 @@ class AgentService:
             tool_results=tool_results,
             iterations=iterations
         )
+
+    def _save_to_history(self, session_id: str, query_text: str, answer: str) -> None:
+        """
+        대화 이력을 Neo4j에 저장합니다.
+
+        Args:
+            session_id: 세션 ID
+            query_text: 사용자 질문
+            answer: Agent 응답
+        """
+        try:
+            history = self._graphrag_service.get_or_create_history(session_id)
+            history.add_user_message(query_text)
+            history.add_ai_message(answer)
+        except Exception as e:
+            # 히스토리 저장 실패는 무시 (로깅만 수행)
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to save history: {e}")
 
 
 # =============================================================================

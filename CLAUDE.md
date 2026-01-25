@@ -219,7 +219,7 @@ genai-fundamentals/
 ├── api/                        # REST API, MCP, A2A 서버
 │   ├── __init__.py
 │   ├── server.py               # FastAPI endpoints
-│   ├── service.py              # GraphRAG 오케스트레이션 (세션, 쿼리 라우팅)
+│   ├── graphrag_service.py     # GraphRAG 오케스트레이션 (세션, 쿼리 라우팅)
 │   ├── models.py               # 데이터 클래스 (TokenUsage, QueryResult)
 │   ├── prompts.py              # 프롬프트 템플릿 모음
 │   ├── router.py               # Query Router (쿼리 분류 및 라우팅)
@@ -272,7 +272,7 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 5. Build the pipeline with `GraphRAG(retriever=retriever, llm=llm)`
 6. Execute queries with `rag.search(query_text=..., retriever_config={"top_k": N})`
 
-**LangChain GraphRAG Pipeline (api/service.py):**
+**LangChain GraphRAG Pipeline (api/graphrag_service.py):**
 1. Connect to Neo4j with `Neo4jGraph()`
 2. Create LLM (`ChatOpenAI`)
 3. **Query Router로 쿼리 분류 (cypher/vector/hybrid/llm_only/memory)**
@@ -290,7 +290,7 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 
 ### Files
 - `api/server.py` - FastAPI endpoints (thin layer)
-- `api/service.py` - GraphRAG 오케스트레이션 (세션 관리, Agent가 내부적으로 사용)
+- `api/graphrag_service.py` - GraphRAG 오케스트레이션 (세션 관리, Agent가 내부적으로 사용)
 - `api/models.py` - 데이터 클래스 (TokenUsage, QueryResult, StreamingCallbackHandler)
 - `api/prompts.py` - 프롬프트 템플릿 모음
 - `api/router.py` - Query Router (Agent 도구에서 내부적으로 사용)
@@ -313,7 +313,7 @@ MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 GraphRAG 기�
 
 ### Files
 - `api/mcp_server.py` - MCP server implementation
-- `api/service.py` - GraphRAG business logic (Agent가 내부적으로 사용)
+- `api/graphrag_service.py` - GraphRAG business logic (Agent가 내부적으로 사용)
 
 ### MCP Tools
 
@@ -355,7 +355,7 @@ result = await client.call_tool("agent_query", {
 |---------|----------|------------|------------|
 | Protocol | HTTP | stdio (JSON-RPC) | JSON-RPC 2.0 (HTTP) |
 | Entry point | `api/server.py` | `api/mcp_server.py` | `api/a2a_server.py` |
-| Business logic | `api/service.py` | `api/service.py` (shared) | `api/service.py` (shared) |
+| Business logic | `api/graphrag_service.py` | `api/graphrag_service.py` (shared) | `api/graphrag_service.py` (shared) |
 | Streaming | SSE | Not supported | Not supported |
 | Use case | Web apps, curl | Claude Desktop, AI assistants | Agent-to-Agent 통신 |
 | Default port | 8000 | - | 9000 |
@@ -439,7 +439,7 @@ curl -X POST http://localhost:9000/ \
 | 파일 | 역할 |
 |------|------|
 | `api/a2a_server.py` | A2A 프로토콜 서버 (AgentCard, AgentExecutor) |
-| `api/service.py` | GraphRAG 비즈니스 로직 (공유) |
+| `api/graphrag_service.py` | GraphRAG 비즈니스 로직 (공유) |
 | `api/agent/service.py` | ReAct Agent 로직 (공유) |
 
 ## Query Router (Internal)
@@ -603,7 +603,7 @@ class TokenUsage:
 | 파일 | 역할 |
 |------|------|
 | `api/models.py` | `TokenUsage` 데이터클래스 정의 |
-| `api/service.py` | `query()`에 callback 래핑 |
+| `api/graphrag_service.py` | `query()`에 callback 래핑 |
 | `api/agent/service.py` | `query()`/`query_async()`/`query_stream()`에 callback 래핑 |
 | `api/server.py` | `TokenUsageResponse` 응답 모델 |
 | `api/mcp_server.py` | 응답 JSON에 token_usage 포함 |

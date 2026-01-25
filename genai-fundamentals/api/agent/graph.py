@@ -18,7 +18,7 @@ from .prompts import REACT_SYSTEM_PROMPT
 from .tools import create_agent_tools
 
 if TYPE_CHECKING:
-    from ..service import GraphRAGService
+    from ..graphrag_service import GraphRAGService
 
 
 # 최대 반복 횟수 (무한 루프 방지)

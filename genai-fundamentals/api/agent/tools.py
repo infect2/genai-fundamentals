@@ -11,7 +11,7 @@ from langchain_core.tools import tool
 from .prompts import TOOL_DESCRIPTIONS
 
 if TYPE_CHECKING:
-    from ..service import GraphRAGService
+    from ..graphrag_service import GraphRAGService
 
 
 def create_agent_tools(service: "GraphRAGService"):

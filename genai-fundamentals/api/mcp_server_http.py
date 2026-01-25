@@ -35,7 +35,7 @@ from starlette.routing import Route
 from starlette.responses import JSONResponse
 import uvicorn
 
-from .service import get_service, GraphRAGService
+from .graphrag_service import get_service, GraphRAGService
 
 
 # =============================================================================

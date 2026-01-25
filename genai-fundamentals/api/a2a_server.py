@@ -37,7 +37,7 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_agent_parts_message
 import uvicorn
 
-from .service import get_service, GraphRAGService
+from .graphrag_service import get_service, GraphRAGService
 from .agent.service import AgentService
 
 

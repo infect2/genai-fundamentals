@@ -227,7 +227,7 @@ class TestAgentIntegration:
         from dotenv import load_dotenv
         load_dotenv()
 
-        from api.service import GraphRAGService
+        from api.graphrag_service import GraphRAGService
         from api.agent.service import AgentService
 
         graphrag_service = GraphRAGService()

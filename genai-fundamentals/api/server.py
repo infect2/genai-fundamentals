@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 # GraphRAG 서비스 모듈 임포트
-from .service import GraphRAGService, get_service
+from .graphrag_service import GraphRAGService, get_service
 from .agent import AgentService
 
 

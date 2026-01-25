@@ -48,7 +48,7 @@ class AgentService:
     multi-step reasoning을 통해 복잡한 쿼리를 처리합니다.
 
     사용 예:
-        from genai_fundamentals.api.service import GraphRAGService
+        from genai_fundamentals.api.graphrag_service import GraphRAGService
         from genai_fundamentals.api.agent import AgentService
 
         graphrag_service = GraphRAGService()
@@ -299,7 +299,7 @@ def get_agent_service(graphrag_service=None) -> AgentService:
     global _agent_service_instance
     if _agent_service_instance is None:
         if graphrag_service is None:
-            from ..service import get_service
+            from ..graphrag_service import get_service
             graphrag_service = get_service()
         _agent_service_instance = AgentService(graphrag_service)
     return _agent_service_instance

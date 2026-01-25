@@ -1,27 +1,96 @@
-= Neo4j & Generative AI Fundamentals
+= Capora AI Ontology Bot
 
-This repository accompanies the link:https://graphacademy.neo4j.com/courses/genai-fundamentals/[Neo4 & Generative AI Fundamentals course^] on link:https://graphacademy.neo4j.com[GraphAcademy^].
+지식 그래프 기반 AI 에이전트 시스템입니다. Neo4j 그래프 데이터베이스와 LLM을 활용하여 온톨로지 기반 데이터를 자연어로 검색하고 분석합니다.
 
-For a complete walkthrough of this repository, link:https://graphacademy.neo4j.com/courses/genai-fundamentals/[enrol now^].
+== Features
 
-link:https://codespaces.new/neo4j-graphacademy/genai-fundamentals[image:https://github.com/codespaces/badge.svg[Open in GitHub Codespaces]^]
+* *ReAct Agent*: Multi-step reasoning을 통한 복잡한 쿼리 처리
+* *Multiple RAG Pipelines*: Cypher, Vector, Hybrid, LLM-only 자동 라우팅
+* *REST API*: FastAPI 기반 HTTP 엔드포인트
+* *MCP Server*: Claude Desktop 연동을 위한 Model Context Protocol 지원
+* *A2A Server*: Agent-to-Agent 프로토콜 지원
+* *Elasticsearch Logging*: 실시간 쿼리/응답 로깅 및 분석
+
+== Quick Start
+
+=== 환경 설정
+
+[source,sh]
+----
+# 의존성 설치
+pip install -r requirements.txt
+
+# 환경변수 설정 (.env.example 참고)
+cp .env.example .env
+# .env 파일에 NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, OPENAI_API_KEY 설정
+
+# 환경 검증
+python -m genai-fundamentals.tools.verify_environment
+----
+
+=== API 서버 실행
+
+[source,sh]
+----
+# REST API 서버 (기본 포트: 8000)
+python -m genai-fundamentals.api.server
+
+# A2A 서버 (기본 포트: 9000)
+python -m genai-fundamentals.api.a2a_server
+
+# MCP 서버 (stdio 모드, Claude Desktop용)
+python -m genai-fundamentals.api.mcp_server
+----
+
+=== API 테스트
+
+[source,sh]
+----
+# REST API 쿼리
+curl -X POST http://localhost:8000/agent/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What entities are connected to X?"}'
+
+# A2A AgentCard 조회
+curl http://localhost:9000/.well-known/agent.json
+----
+
+== Architecture
+
+----
+┌─────────────────────────────────────────────────────┐
+│                  Capora AI Ontology Bot             │
+├─────────────────────────────────────────────────────┤
+│  Clients: REST API | MCP | A2A | Streamlit | Chainlit │
+├─────────────────────────────────────────────────────┤
+│  ReAct Agent (LangGraph)                            │
+│  ├─ cypher_query: 엔티티/관계 조회                    │
+│  ├─ vector_search: 시맨틱 검색                       │
+│  ├─ hybrid_search: 복합 검색                         │
+│  └─ get_schema: 스키마 조회                          │
+├─────────────────────────────────────────────────────┤
+│  Neo4j Graph Database | LLM Provider (OpenAI/etc)   │
+└─────────────────────────────────────────────────────┘
+----
 
 == Tests
 
-To run the solution tests: 
+[source,sh]
+----
+# 모든 테스트 실행
+pytest genai-fundamentals/tests/ -v
 
-. Create Neo4j instance with the `recommendations` dataset
-. Run the link:https://github.com/neo4j-graphacademy/courses/blob/main/asciidoc/courses/genai-fundamentals/modules/2-rag/lessons/3-vector-index/reset.cypher[Cypher to add embeddings and create the vector index^].
-. Create a virtual environment and install the requirements.
-+ 
-[source,sh]
-pip install -r requirements.txt
-. Install `pytest`
-+
-[source,sh]
-pip install pytest
-. Create a `.env` file in the root directory. Use `.env.example` as a template.
-. Run the tests
-+
-[source,sh]
-pytest genai-fundamentals/solutions
+# Mock 테스트만 (외부 API 호출 없음)
+pytest genai-fundamentals/tests/ -v -k "not integration"
+
+# Solution 테스트
+pytest genai-fundamentals/solutions/test_solutions.py -v
+----
+
+== Documentation
+
+자세한 사용법은 link:CLAUDE.md[CLAUDE.md] 파일을 참고하세요.
+
+== License
+
+MIT License

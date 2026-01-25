@@ -1,7 +1,7 @@
 """
-GraphRAG MCP (Model Context Protocol) Server (Agent-Only)
+Capora AI Ontology Bot - MCP (Model Context Protocol) Server (Agent-Only)
 
-MCP 프로토콜을 통해 GraphRAG 기능을 제공하는 서버입니다.
+MCP 프로토콜을 통해 지식 그래프 검색 기능을 제공하는 서버입니다.
 모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 MCP Tools:
@@ -15,7 +15,7 @@ MCP Tools:
 Claude Desktop 설정 (~/.claude/claude_desktop_config.json):
     {
       "mcpServers": {
-        "graphrag": {
+        "capora": {
           "command": "python",
           "args": ["-m", "genai-fundamentals.api.mcp_server"],
           "cwd": "/path/to/genai-fundamentals"
@@ -40,9 +40,9 @@ from .agent import AgentService
 # MCP 서버 초기화
 # =============================================================================
 
-app = Server("graphrag-mcp")
+app = Server("capora-mcp")
 
-# GraphRAG 서비스 인스턴스 (지연 초기화)
+# Ontology 서비스 인스턴스 (지연 초기화)
 _service: GraphRAGService | None = None
 _agent_service: AgentService | None = None
 
@@ -93,9 +93,9 @@ TOOLS = [
     Tool(
         name="agent_query",
         description=(
-            "자연어로 Neo4j 그래프 데이터베이스를 쿼리합니다. "
+            "자연어로 Neo4j 지식 그래프를 쿼리합니다. "
             "ReAct Agent가 multi-step reasoning을 통해 여러 도구를 조합하여 답변을 생성합니다. "
-            "예: 'Which actors appeared in The Matrix?', 'Tom Hanks와 비슷한 배우가 출연한 SF 영화는?'"
+            "예: 'X와 연결된 엔티티는?', '특정 관계 유형을 가진 노드 찾기'"
         ),
         inputSchema={
             "type": "object",

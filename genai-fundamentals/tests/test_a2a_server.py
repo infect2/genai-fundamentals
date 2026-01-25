@@ -36,7 +36,7 @@ _models_mod = importlib.import_module("genai-fundamentals.api.models")
 _agent_svc_mod = importlib.import_module("genai-fundamentals.api.agent.service")
 
 AGENT_CARD = _a2a_mod.AGENT_CARD
-GraphRAGAgentExecutor = _a2a_mod.GraphRAGAgentExecutor
+CaporaAgentExecutor = _a2a_mod.CaporaAgentExecutor
 TokenUsage = _models_mod.TokenUsage
 AgentResult = _agent_svc_mod.AgentResult
 
@@ -115,7 +115,7 @@ class TestA2AServerMock:
 
     def test_agent_card_structure(self):
         """AgentCard 구조 검증"""
-        assert AGENT_CARD.name == "GraphRAG Agent"
+        assert AGENT_CARD.name == "Capora AI Ontology Bot"
         assert AGENT_CARD.version == "1.0.0"
         assert "text/plain" in AGENT_CARD.default_input_modes
         assert "application/json" in AGENT_CARD.default_output_modes
@@ -125,11 +125,11 @@ class TestA2AServerMock:
     def test_agent_card_skills(self):
         """AgentCard 스킬 목록 검증"""
         skills = {s.id: s for s in AGENT_CARD.skills}
-        assert "graphrag_agent" in skills
-        assert len(skills) == 1  # Agent-only: graphrag_agent만 있음
+        assert "ontology_agent" in skills
+        assert len(skills) == 1  # Agent-only: ontology_agent만 있음
 
-        # graphrag_agent 스킬 검증
-        agent_skill = skills["graphrag_agent"]
+        # ontology_agent 스킬 검증
+        agent_skill = skills["ontology_agent"]
         assert "neo4j" in agent_skill.tags
         assert "react" in agent_skill.tags
         assert len(agent_skill.examples) >= 2
@@ -138,7 +138,7 @@ class TestA2AServerMock:
         """텍스트 추출 로직 검증"""
         from a2a.types import Part, TextPart
 
-        executor = GraphRAGAgentExecutor()
+        executor = CaporaAgentExecutor()
 
         # TextPart가 있는 메시지
         msg = MagicMock()
@@ -161,7 +161,7 @@ class TestA2AServerMock:
         """Agent 실행 Mock 테스트 (모든 쿼리는 Agent를 통해 처리됨)"""
         from a2a.types import Part, TextPart
 
-        executor = GraphRAGAgentExecutor()
+        executor = CaporaAgentExecutor()
 
         # Mock agent service
         mock_agent = MagicMock()
@@ -201,7 +201,7 @@ class TestA2AServerMock:
         """에러 처리 Mock 테스트"""
         from a2a.types import Part, TextPart
 
-        executor = GraphRAGAgentExecutor()
+        executor = CaporaAgentExecutor()
 
         # Mock agent service that raises
         mock_agent = MagicMock()
@@ -224,7 +224,7 @@ class TestA2AServerMock:
     @pytest.mark.asyncio
     async def test_executor_empty_message(self):
         """빈 메시지 에러 처리 테스트"""
-        executor = GraphRAGAgentExecutor()
+        executor = CaporaAgentExecutor()
 
         ctx = MagicMock()
         ctx.message.parts = []
@@ -242,7 +242,7 @@ class TestA2AServerMock:
     @pytest.mark.asyncio
     async def test_executor_cancel(self):
         """태스크 취소 테스트"""
-        executor = GraphRAGAgentExecutor()
+        executor = CaporaAgentExecutor()
 
         ctx = MagicMock()
         ctx.task_id = "cancel-task"
@@ -271,13 +271,13 @@ class TestA2AServerIntegration:
         assert resp.status_code == 200
 
         card = resp.json()
-        assert card["name"] == "GraphRAG Agent"
+        assert card["name"] == "Capora AI Ontology Bot"
         assert card["version"] == "1.0.0"
         assert "skills" in card
-        assert len(card["skills"]) == 1  # Agent-only: graphrag_agent만 있음
+        assert len(card["skills"]) == 1  # Agent-only: ontology_agent만 있음
 
         skill_ids = [s["id"] for s in card["skills"]]
-        assert "graphrag_agent" in skill_ids
+        assert "ontology_agent" in skill_ids
 
     def test_query_basic(self, a2a_server, a2a_url):
         """기본 쿼리 테스트 (message/send) - Agent를 통해 처리"""

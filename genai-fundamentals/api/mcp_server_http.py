@@ -1,5 +1,5 @@
 """
-GraphRAG MCP Server (HTTP/SSE Mode)
+Capora AI Ontology Bot - MCP Server (HTTP/SSE Mode)
 
 HTTP/SSE 기반 MCP 서버입니다.
 URL을 통해 MCP 클라이언트와 통신합니다.
@@ -15,7 +15,7 @@ URL을 통해 MCP 클라이언트와 통신합니다.
 Claude Desktop 설정 (~/.claude/claude_desktop_config.json):
     {
       "mcpServers": {
-        "graphrag": {
+        "capora": {
           "url": "http://localhost:3001/sse"
         }
       }
@@ -42,9 +42,9 @@ from .graphrag_service import get_service, GraphRAGService
 # MCP 서버 초기화
 # =============================================================================
 
-mcp_server = Server("graphrag-mcp")
+mcp_server = Server("capora-mcp")
 
-# GraphRAG 서비스 인스턴스 (지연 초기화)
+# Ontology 서비스 인스턴스 (지연 초기화)
 _service: GraphRAGService | None = None
 
 
@@ -64,9 +64,9 @@ TOOLS = [
     Tool(
         name="query",
         description=(
-            "자연어로 Neo4j 그래프 데이터베이스를 쿼리합니다. "
-            "영화, 배우, 감독, 장르 정보를 검색할 수 있습니다. "
-            "예: 'Which actors appeared in The Matrix?', 'What movies did Tom Hanks star in?'"
+            "자연어로 Neo4j 지식 그래프를 쿼리합니다. "
+            "온톨로지 기반 데이터를 검색할 수 있습니다. "
+            "예: 'X와 연결된 엔티티는?', '특정 관계 유형을 가진 노드 찾기'"
         ),
         inputSchema={
             "type": "object",

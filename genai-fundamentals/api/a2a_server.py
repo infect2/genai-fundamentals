@@ -1,7 +1,7 @@
 """
-GraphRAG A2A (Agent2Agent) Protocol Server (Agent-Only)
+Capora AI Ontology Bot - A2A (Agent2Agent) Protocol Server (Agent-Only)
 
-A2A 프로토콜을 통해 GraphRAG 기능을 에이전트 간 통신으로 제공합니다.
+A2A 프로토콜을 통해 지식 그래프 검색 기능을 에이전트 간 통신으로 제공합니다.
 모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 실행 방법:
@@ -46,10 +46,10 @@ from .agent.service import AgentService
 # =============================================================================
 
 AGENT_CARD = AgentCard(
-    name="GraphRAG Agent",
+    name="Capora AI Ontology Bot",
     description=(
-        "Neo4j 그래프 데이터베이스 기반 GraphRAG 에이전트. "
-        "영화, 배우, 감독, 장르 정보를 자연어로 검색합니다. "
+        "Neo4j 그래프 데이터베이스 기반 지식 그래프 에이전트. "
+        "온톨로지 기반 데이터를 자연어로 검색합니다. "
         "ReAct Agent가 multi-step reasoning을 통해 답변을 생성합니다."
     ),
     version="1.0.0",
@@ -62,18 +62,18 @@ AGENT_CARD = AgentCard(
     ),
     skills=[
         AgentSkill(
-            id="graphrag_agent",
-            name="GraphRAG ReAct Agent",
+            id="ontology_agent",
+            name="Capora AI ReAct Agent",
             description=(
-                "자연어로 Neo4j 영화 데이터베이스를 쿼리합니다. "
+                "자연어로 Neo4j 지식 그래프를 쿼리합니다. "
                 "Multi-step reasoning을 통해 여러 도구를 조합하여 답변을 생성합니다."
             ),
-            tags=["graphrag", "neo4j", "movie", "agent", "react"],
+            tags=["ontology", "neo4j", "knowledge-graph", "agent", "react"],
             examples=[
-                "Which actors appeared in The Matrix?",
-                "What movies did Tom Hanks star in?",
-                "Tom Hanks와 비슷한 배우가 출연한 SF 영화는?",
-                "가장 많은 장르에 출연한 배우는 누구인가?",
+                "What entities are connected to X?",
+                "Find all relationships of type Y",
+                "X와 관련된 데이터를 찾아줘",
+                "가장 많은 관계를 가진 노드는?",
             ],
             input_modes=["text/plain"],
             output_modes=["text/plain", "application/json"],
@@ -86,8 +86,8 @@ AGENT_CARD = AgentCard(
 # AgentExecutor 구현
 # =============================================================================
 
-class GraphRAGAgentExecutor(AgentExecutor):
-    """GraphRAG 비즈니스 로직을 A2A 프로토콜에 연결하는 실행기"""
+class CaporaAgentExecutor(AgentExecutor):
+    """Capora AI 비즈니스 로직을 A2A 프로토콜에 연결하는 실행기"""
 
     def __init__(self):
         self._service: GraphRAGService | None = None
@@ -203,7 +203,7 @@ class GraphRAGAgentExecutor(AgentExecutor):
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="GraphRAG A2A Server")
+    parser = argparse.ArgumentParser(description="Capora AI A2A Server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
@@ -213,7 +213,7 @@ def main():
     agent_card.url = f"http://{args.host}:{args.port}"
 
     # A2A 서버 구성
-    executor = GraphRAGAgentExecutor()
+    executor = CaporaAgentExecutor()
     request_handler = DefaultRequestHandler(
         agent_executor=executor,
         task_store=InMemoryTaskStore(),
@@ -223,7 +223,7 @@ def main():
         http_handler=request_handler,
     )
 
-    print(f"GraphRAG A2A Server starting...")
+    print(f"Capora AI A2A Server starting...")
     print(f"URL: http://localhost:{args.port}")
     print(f"AgentCard: http://localhost:{args.port}/.well-known/agent.json")
     print(f"Skills: {[s.id for s in AGENT_CARD.skills]}")

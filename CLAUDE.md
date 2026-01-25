@@ -55,7 +55,10 @@ API 키나 credential을 절대 하드코딩하지 않는다:
 
 ## Project Overview
 
-This repository accompanies the [Neo4j and GenerativeAI Fundamentals course](https://graphacademy.neo4j.com/courses/genai-fundamentals) on GraphAcademy. It teaches how to build GraphRAG applications using Neo4j and OpenAI.
+**Capora AI Ontology Bot** - Neo4j 지식 그래프 기반 자연어 질의 시스템
+
+이 저장소는 Neo4j 그래프 데이터베이스와 LLM을 활용한 지식 그래프 검색 애플리케이션입니다.
+ReAct Agent를 통해 multi-step reasoning으로 복잡한 쿼리를 처리합니다.
 
 ## Commands
 
@@ -96,7 +99,7 @@ uvicorn genai-fundamentals.api.server:app --reload --port 8000
 curl http://localhost:8000/
 curl -X POST "http://localhost:8000/agent/query" \
   -H "Content-Type: application/json" \
-  -d '{"query": "Which actors appeared in The Matrix?"}'
+  -d '{"query": "What entities are connected to X?"}'
 ```
 
 ### Streamlit Client
@@ -359,7 +362,7 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 
 ## MCP Server (Agent-Only)
 
-MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 GraphRAG 기능을 제공합니다.
+MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 지식 그래프 검색 기능을 제공합니다.
 모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 ### Files
@@ -377,8 +380,8 @@ MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 GraphRAG 기�
 ### Agent Query Response Format
 ```json
 {
-  "answer": "Hugo Weaving, Laurence Fishburne...",
-  "thoughts": ["Searching for actors in The Matrix...", ...],
+  "answer": "The entities connected to X are...",
+  "thoughts": ["Searching for connected entities...", ...],
   "tool_calls": [{"name": "cypher_query", "args": {...}}],
   "tool_results": [...],
   "iterations": 2,
@@ -395,7 +398,7 @@ MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 GraphRAG 기�
 ```python
 # MCP 클라이언트에서 tool 호출
 result = await client.call_tool("agent_query", {
-    "query": "Which actors appeared in The Matrix?",
+    "query": "What entities are connected to X?",
     "session_id": "user123"
 })
 ```
@@ -413,7 +416,7 @@ result = await client.call_tool("agent_query", {
 
 ## A2A Server (Agent-Only)
 
-A2A (Agent2Agent) 프로토콜 서버는 Google의 A2A Protocol을 통해 GraphRAG 기능을 에이전트 간 통신으로 제공합니다.
+A2A (Agent2Agent) 프로토콜 서버는 Google의 A2A Protocol을 통해 지식 그래프 검색 기능을 에이전트 간 통신으로 제공합니다.
 모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 **A2A vs MCP:**
@@ -439,7 +442,7 @@ AgentCard는 에이전트의 기능을 자기 기술하는 매니페스트입니
 
 | Field | Value |
 |-------|-------|
-| Name | GraphRAG Agent |
+| Name | Capora AI Ontology Bot |
 | URL | http://localhost:9000 |
 | Input modes | text/plain, application/json |
 | Output modes | text/plain, application/json |
@@ -449,7 +452,7 @@ AgentCard는 에이전트의 기능을 자기 기술하는 매니페스트입니
 
 | Skill ID | 설명 | 예시 쿼리 |
 |----------|------|----------|
-| `graphrag_agent` | ReAct Agent multi-step reasoning | "Which actors appeared in The Matrix?", "톰 행크스와 비슷한 배우가 출연한 SF 영화는?" |
+| `ontology_agent` | ReAct Agent multi-step reasoning | "What entities are connected to X?", "Y와 관련된 데이터를 찾아줘" |
 
 ### 쿼리 테스트
 
@@ -465,7 +468,7 @@ curl -X POST http://localhost:9000/ \
       "message": {
         "messageId": "msg-001",
         "role": "user",
-        "parts": [{"kind": "text", "text": "Which actors appeared in The Matrix?"}]
+        "parts": [{"kind": "text", "text": "What entities are connected to X?"}]
       }
     }
   }'
@@ -478,7 +481,7 @@ curl -X POST http://localhost:9000/ \
 **Agent 응답 DataPart:**
 ```json
 {
-  "thoughts": ["First, I'll search for actors in The Matrix...", ...],
+  "thoughts": ["First, I'll search for connected entities...", ...],
   "tool_calls": [{"name": "cypher_query", "args": {...}}],
   "iterations": 2,
   "token_usage": {"total_tokens": 1500, "total_cost": 0.0075}
@@ -502,10 +505,10 @@ API 엔드포인트로 직접 노출되지 않으며, Agent가 내부적으로 �
 
 | Route | 설명 | 예시 쿼리 |
 |-------|------|----------|
-| `cypher` | 엔티티/관계 조회 (Text-to-Cypher) | "톰 행크스가 출연한 영화는?" |
-| `vector` | 시맨틱 검색 (Vector similarity) | "슬픈 영화 추천해줘" |
-| `hybrid` | 복합 쿼리 (Vector + Cypher) | "90년대 액션 영화 중 평점 높은 것" |
-| `llm_only` | 일반 질문 (DB 조회 없음) | "영화란 무엇인가요?" |
+| `cypher` | 엔티티/관계 조회 (Text-to-Cypher) | "X와 연결된 엔티티는?" |
+| `vector` | 시맨틱 검색 (Vector similarity) | "비슷한 특성을 가진 데이터 찾아줘" |
+| `hybrid` | 복합 쿼리 (Vector + Cypher) | "특정 조건을 만족하는 유사 엔티티" |
+| `llm_only` | 일반 질문 (DB 조회 없음) | "이것은 무엇인가요?" |
 | `memory` | 사용자 정보 저장/조회 (Neo4j) | "내 차번호는 59구8426이야 기억해", "내 차번호 뭐지?" |
 
 ### 테스트
@@ -553,13 +556,13 @@ ReAct (Reasoning + Acting) Agent는 LangGraph를 사용하여 multi-step reasoni
 # REST API - ReAct Agent 사용
 curl -X POST "http://localhost:8000/agent/query" \
   -H "Content-Type: application/json" \
-  -d '{"query": "톰 행크스와 비슷한 배우가 출연한 SF 영화는?", "stream": false}'
+  -d '{"query": "X와 유사한 특성을 가진 엔티티 찾아줘", "stream": false}'
 ```
 
 ### Agent Request Format
 ```json
 {
-  "query": "톰 행크스와 비슷한 배우가 출연한 SF 영화는?",
+  "query": "X와 유사한 특성을 가진 엔티티 찾아줘",
   "session_id": "user123",      // Optional (default: "default")
   "stream": false               // Optional (default: false)
 }
@@ -569,10 +572,10 @@ curl -X POST "http://localhost:8000/agent/query" \
 ```json
 {
   "answer": "Based on my search...",
-  "thoughts": ["First, I'll find Tom Hanks movies...", "Now searching for similar actors..."],
+  "thoughts": ["First, I'll find entities related to X...", "Now searching for similar entities..."],
   "tool_calls": [
-    {"name": "cypher_query", "args": {"query": "Tom Hanks movies"}},
-    {"name": "vector_search", "args": {"query": "sci-fi movies"}}
+    {"name": "cypher_query", "args": {"query": "entities connected to X"}},
+    {"name": "vector_search", "args": {"query": "similar entities"}}
   ],
   "tool_results": [...],
   "iterations": 3,
@@ -713,12 +716,12 @@ ES_API_KEY=                   # API 키 (인증 필요 시)
     "duration_ms": 1500.5
   },
   "request": {
-    "query": "Which actors appeared in The Matrix?",
+    "query": "What entities are connected to X?",
     "session_id": "user123",
     "stream": false
   },
   "response": {
-    "answer": "The actors who appeared in The Matrix..."
+    "answer": "The entities connected to X are..."
   },
   "agent": {
     "thoughts": ["Searching for actors..."],
@@ -805,7 +808,7 @@ python -m genai-fundamentals.api.server
 # 4. 테스트 쿼리
 curl -X POST http://localhost:8000/agent/query \
   -H "Content-Type: application/json" \
-  -d '{"query": "Who directed The Matrix?"}'
+  -d '{"query": "What entities are connected to X?"}'
 
 # 5. ES에서 로그 확인
 curl http://localhost:9200/graphrag-logs-*/_search | python -m json.tool

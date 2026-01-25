@@ -2,7 +2,7 @@
 Agent Tools Module
 
 ReAct Agent에서 사용하는 도구들을 정의합니다.
-기존 GraphRAGService의 메서드를 LangChain Tool 형태로 래핑합니다.
+기존 Ontology Service의 메서드를 LangChain Tool 형태로 래핑합니다.
 """
 
 from typing import TYPE_CHECKING
@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 
 def create_agent_tools(service: "GraphRAGService"):
     """
-    GraphRAGService를 래핑하는 LangChain 도구들을 생성합니다.
+    Ontology Service를 래핑하는 LangChain 도구들을 생성합니다.
 
     Args:
-        service: GraphRAGService 인스턴스
+        service: OntologyService 인스턴스
 
     Returns:
         LangChain Tool 리스트
@@ -28,11 +28,11 @@ def create_agent_tools(service: "GraphRAGService"):
     @tool
     def cypher_query(query: str) -> str:
         """Execute a natural language query that gets converted to Cypher.
-        Use for specific entity/relationship queries like 'Which actors appeared in The Matrix?'.
+        Use for specific entity/relationship queries like 'Which entities are connected to X?'.
         Returns structured data from Neo4j.
 
         Args:
-            query: Natural language question about movies, actors, directors, or genres
+            query: Natural language question about entities and relationships in the knowledge graph
         """
         try:
             result = service.query(query, force_route="cypher")
@@ -47,19 +47,19 @@ def create_agent_tools(service: "GraphRAGService"):
 
     @tool
     def vector_search(query: str, top_k: int = 5) -> str:
-        """Search for movies based on semantic similarity of their plots.
-        Use for queries like 'Find sad movies' or 'Movies similar to Inception'.
-        Returns movies with similar themes/plots.
+        """Search for entities based on semantic similarity of their content.
+        Use for queries like 'Find similar entities' or 'Search by meaning'.
+        Returns entities with similar content.
 
         Args:
-            query: Natural language description of what kind of movies to find
-            top_k: Number of similar movies to return (default: 5)
+            query: Natural language description of what kind of entities to find
+            top_k: Number of similar entities to return (default: 5)
         """
         try:
             result = service.query(query, force_route="vector")
             output_parts = [f"Answer: {result.answer}"]
             if result.context:
-                output_parts.append(f"Found movies: {result.context[:top_k]}")
+                output_parts.append(f"Found entities: {result.context[:top_k]}")
             return "\n".join(output_parts)
         except Exception as e:
             return f"Error executing vector search: {str(e)}"
@@ -67,8 +67,8 @@ def create_agent_tools(service: "GraphRAGService"):
     @tool
     def hybrid_search(query: str, top_k: int = 3) -> str:
         """Combine structured Cypher queries with semantic vector search.
-        Use for complex queries needing both exact data and thematic similarity.
-        Example: 'Highly rated sci-fi movies with interesting plots'
+        Use for complex queries needing both exact data and semantic similarity.
+        Example: 'Entities with specific properties and similar descriptions'
 
         Args:
             query: Complex question requiring both structured and semantic search

@@ -1,5 +1,5 @@
 """
-GraphRAG REST API Server (Agent-Only)
+Capora AI Ontology Bot - REST API Server (Agent-Only)
 
 FastAPI 기반의 REST API 서버입니다.
 모든 쿼리는 ReAct Agent를 통해 처리됩니다.
@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
-# GraphRAG 서비스 모듈 임포트
+# Ontology 서비스 모듈 임포트
 from .graphrag_service import GraphRAGService, get_service
 from .agent import AgentService
 
@@ -37,15 +37,15 @@ from .logging import ElasticsearchLoggingMiddleware, log_agent_response, ES_ENAB
 # =============================================================================
 
 app = FastAPI(
-    title="GraphRAG API (LangChain)",
-    description="REST API for querying Neo4j using natural language with LangChain",
+    title="Capora AI Ontology Bot API",
+    description="REST API for querying Neo4j knowledge graph using natural language",
     version="2.0.0"
 )
 
 # Elasticsearch 로깅 미들웨어 등록
 app.add_middleware(ElasticsearchLoggingMiddleware)
 
-# GraphRAG 서비스 인스턴스 (싱글톤)
+# Ontology 서비스 인스턴스 (싱글톤)
 service: GraphRAGService = None
 agent_service: AgentService = None
 
@@ -53,7 +53,7 @@ agent_service: AgentService = None
 @app.on_event("startup")
 async def startup_event():
     """
-    서버 시작 시 GraphRAG 서비스 초기화
+    서버 시작 시 Ontology 서비스 초기화
 
     FastAPI의 lifespan 이벤트를 사용해 서버 시작 시
     한 번만 서비스를 초기화합니다.
@@ -130,7 +130,7 @@ def root():
         서버 정보 및 API 문서 경로
     """
     return {
-        "message": "GraphRAG API Server (LangChain)",
+        "message": "Capora AI Ontology Bot API Server",
         "docs": "/docs",
         "version": "2.0.0"
     }

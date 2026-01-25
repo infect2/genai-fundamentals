@@ -51,9 +51,9 @@ class AgentService:
         from genai_fundamentals.api.graphrag_service import GraphRAGService
         from genai_fundamentals.api.agent import AgentService
 
-        graphrag_service = GraphRAGService()
-        agent_service = AgentService(graphrag_service)
-        result = agent_service.query("Find actors similar to Tom Hanks in sci-fi movies")
+        ontology_service = GraphRAGService()
+        agent_service = AgentService(ontology_service)
+        result = agent_service.query("Find entities connected to X with similar properties")
         print(result.answer)
     """
 

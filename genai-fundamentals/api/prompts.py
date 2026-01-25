@@ -1,5 +1,5 @@
 """
-GraphRAG 프롬프트 템플릿 모음
+Capora AI 프롬프트 템플릿 모음
 
 각 RAG 파이프라인에서 사용하는 프롬프트 템플릿을 정의합니다.
 """
@@ -15,21 +15,14 @@ Schema:
 {schema}
 
 Important notes:
-- Movie titles with articles are stored as "Title, The" format (e.g., "Matrix, The", "Godfather, The")
+- Some entity names with articles may be stored as "Name, The" format
 - Use case-insensitive matching when possible
+- Generate valid Cypher based on the provided schema
 
-Examples:
-Q: Which actors appeared in The Matrix?
-Cypher: MATCH (a:Actor)-[:ACTED_IN]->(m:Movie) WHERE m.title = 'Matrix, The' RETURN a.name
-
-Q: What movies did Tom Hanks star in?
-Cypher: MATCH (a:Actor {{name: 'Tom Hanks'}})-[:ACTED_IN]->(m:Movie) RETURN m.title
-
-Q: What genre is Toy Story?
-Cypher: MATCH (m:Movie {{title: 'Toy Story'}})-[:IN_GENRE]->(g:Genre) RETURN g.name
-
-Q: Who directed The Godfather?
-Cypher: MATCH (d:Director)-[:DIRECTED]->(m:Movie) WHERE m.title = 'Godfather, The' RETURN d.name
+Examples will vary based on the schema. Use the schema above to understand:
+- Available node labels and their properties
+- Available relationship types
+- How to construct proper Cypher queries
 
 Question: {question}
 Cypher:"""
@@ -39,18 +32,18 @@ Cypher:"""
 # Vector RAG 프롬프트 템플릿
 # =============================================================================
 
-VECTOR_RAG_TEMPLATE = """You are a movie recommendation assistant.
-Use the following movie information retrieved from the database to answer the user's question.
+VECTOR_RAG_TEMPLATE = """You are a knowledge graph assistant.
+Use the following information retrieved from the database to answer the user's question.
 
-Retrieved Movies:
+Retrieved Data:
 {context}
 
 User Question: {question}
 
 Instructions:
-- Based on the retrieved movie information, provide a helpful answer
-- If multiple movies are relevant, list them with brief explanations
-- If no relevant movies are found, acknowledge this and suggest alternatives
+- Based on the retrieved information, provide a helpful answer
+- If multiple results are relevant, list them with brief explanations
+- If no relevant data is found, acknowledge this and suggest alternatives
 - Be conversational and helpful
 
 Answer:"""
@@ -60,10 +53,10 @@ Answer:"""
 # Hybrid RAG 프롬프트 템플릿
 # =============================================================================
 
-HYBRID_RAG_TEMPLATE = """You are a movie expert assistant.
+HYBRID_RAG_TEMPLATE = """You are a knowledge graph expert assistant.
 Use both the semantic search results and structured data to answer the user's question.
 
-Semantic Search Results (similar movies by plot/theme):
+Semantic Search Results (similar content):
 {vector_context}
 
 Structured Data Results (from database query):
@@ -74,8 +67,8 @@ User Question: {question}
 Instructions:
 - Combine information from both sources for a comprehensive answer
 - Prioritize accuracy from structured data
-- Use semantic results for recommendations and comparisons
-- Be specific and include movie titles, actors, directors when relevant
+- Use semantic results for finding related information
+- Be specific and include relevant entity names and relationships
 
 Answer:"""
 
@@ -84,14 +77,13 @@ Answer:"""
 # LLM Only 프롬프트 템플릿
 # =============================================================================
 
-LLM_ONLY_TEMPLATE = """You are a helpful general-purpose assistant.
+LLM_ONLY_TEMPLATE = """You are Capora AI, a helpful general-purpose assistant.
 
 User Question: {question}
 
 Instructions:
 - Answer the question based on your general knowledge
-- If the question is about movies, provide detailed movie-related information
-- If the question is about other topics (math, science, coding, etc.), answer helpfully
+- If the question is about specific topics, provide detailed information
 - If the question is a greeting or casual conversation, respond appropriately
 - Keep responses concise and helpful
 - Respond in the same language as the user's question

@@ -78,10 +78,10 @@ class TestAgentPrompts:
         assert "hybrid_search" in REACT_SYSTEM_PROMPT
         assert "get_schema" in REACT_SYSTEM_PROMPT
 
-    def test_system_prompt_contains_movie_format(self):
-        """시스템 프롬프트에 영화 제목 형식 설명 포함 확인"""
-        assert "Matrix, The" in REACT_SYSTEM_PROMPT
-        assert "Godfather, The" in REACT_SYSTEM_PROMPT
+    def test_system_prompt_contains_knowledge_graph_context(self):
+        """시스템 프롬프트에 지식 그래프 컨텍스트 포함 확인"""
+        assert "knowledge graph" in REACT_SYSTEM_PROMPT.lower() or "ontology" in REACT_SYSTEM_PROMPT.lower()
+        assert "entity" in REACT_SYSTEM_PROMPT.lower() or "entities" in REACT_SYSTEM_PROMPT.lower()
 
     def test_tool_descriptions_complete(self):
         """모든 도구 설명이 있는지 확인"""

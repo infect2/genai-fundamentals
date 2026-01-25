@@ -1,9 +1,8 @@
 """
-A2A Server Integration Tests
+A2A Server Integration Tests (Agent-Only)
 
 A2A (Agent2Agent) 서버의 기능을 테스트합니다.
 - AgentCard 조회
-- graphrag_query 스킬 (일반 쿼리)
 - graphrag_agent 스킬 (ReAct Agent)
 - 에러 처리
 
@@ -38,7 +37,6 @@ _agent_svc_mod = importlib.import_module("genai-fundamentals.api.agent.service")
 
 AGENT_CARD = _a2a_mod.AGENT_CARD
 GraphRAGAgentExecutor = _a2a_mod.GraphRAGAgentExecutor
-QueryResult = _models_mod.QueryResult
 TokenUsage = _models_mod.TokenUsage
 AgentResult = _agent_svc_mod.AgentResult
 
@@ -127,18 +125,14 @@ class TestA2AServerMock:
     def test_agent_card_skills(self):
         """AgentCard 스킬 목록 검증"""
         skills = {s.id: s for s in AGENT_CARD.skills}
-        assert "graphrag_query" in skills
         assert "graphrag_agent" in skills
-
-        # graphrag_query 스킬 검증
-        query_skill = skills["graphrag_query"]
-        assert "neo4j" in query_skill.tags
-        assert len(query_skill.examples) >= 2
+        assert len(skills) == 1  # Agent-only: graphrag_agent만 있음
 
         # graphrag_agent 스킬 검증
         agent_skill = skills["graphrag_agent"]
+        assert "neo4j" in agent_skill.tags
         assert "react" in agent_skill.tags
-        assert "multi-step" in agent_skill.tags
+        assert len(agent_skill.examples) >= 2
 
     def test_executor_extract_text(self):
         """텍스트 추출 로직 검증"""
@@ -162,72 +156,9 @@ class TestA2AServerMock:
         # None 메시지
         assert executor._extract_text(None) == ""
 
-    def test_executor_should_use_agent(self):
-        """Agent 모드 판별 로직 검증"""
-        executor = GraphRAGAgentExecutor()
-
-        # skill_id=graphrag_agent → Agent 모드
-        ctx = MagicMock()
-        ctx.message.metadata = {"skill_id": "graphrag_agent"}
-        assert executor._should_use_agent(ctx) is True
-
-        # skill_id=graphrag_query → Query 모드
-        ctx.message.metadata = {"skill_id": "graphrag_query"}
-        assert executor._should_use_agent(ctx) is False
-
-        # metadata 없음 → Query 모드
-        ctx.message.metadata = None
-        assert executor._should_use_agent(ctx) is False
-
-        # 메시지 없음 → Query 모드
-        ctx_no_msg = MagicMock()
-        ctx_no_msg.message = None
-        assert executor._should_use_agent(ctx_no_msg) is False
-
-    @pytest.mark.asyncio
-    async def test_executor_query_mock(self):
-        """Query 실행 Mock 테스트"""
-        from a2a.types import Part, TextPart
-
-        executor = GraphRAGAgentExecutor()
-
-        # Mock service
-        mock_service = MagicMock()
-        mock_result = QueryResult(
-            answer="Test answer",
-            cypher="MATCH (n) RETURN n",
-            context=["ctx1"],
-            route="cypher",
-            route_reasoning="test",
-            token_usage=TokenUsage(total_tokens=100, prompt_tokens=80, completion_tokens=20, total_cost=0.001),
-        )
-        mock_service.query_async = AsyncMock(return_value=mock_result)
-        executor._service = mock_service
-
-        # Mock context
-        ctx = MagicMock()
-        ctx.message.parts = [Part(root=TextPart(text="test query"))]
-        ctx.message.metadata = None
-        ctx.context_id = "test-ctx"
-        ctx.task_id = "test-task"
-
-        # Mock event queue
-        event_queue = MagicMock()
-        event_queue.enqueue_event = AsyncMock()
-
-        await executor.execute(ctx, event_queue)
-
-        # 서비스 호출 확인
-        mock_service.query_async.assert_called_once_with(
-            query_text="test query", session_id="test-ctx"
-        )
-
-        # 이벤트 큐에 응답과 완료 상태가 전송되었는지 확인
-        assert event_queue.enqueue_event.call_count == 2
-
     @pytest.mark.asyncio
     async def test_executor_agent_mock(self):
-        """Agent 실행 Mock 테스트"""
+        """Agent 실행 Mock 테스트 (모든 쿼리는 Agent를 통해 처리됨)"""
         from a2a.types import Part, TextPart
 
         executor = GraphRAGAgentExecutor()
@@ -245,10 +176,9 @@ class TestA2AServerMock:
         mock_agent.query_async = AsyncMock(return_value=mock_result)
         executor._agent_service = mock_agent
 
-        # Mock context (agent mode)
+        # Mock context
         ctx = MagicMock()
-        ctx.message.parts = [Part(root=TextPart(text="complex query"))]
-        ctx.message.metadata = {"skill_id": "graphrag_agent"}
+        ctx.message.parts = [Part(root=TextPart(text="test query"))]
         ctx.context_id = "agent-ctx"
         ctx.task_id = "agent-task"
 
@@ -260,8 +190,11 @@ class TestA2AServerMock:
 
         # Agent 서비스 호출 확인
         mock_agent.query_async.assert_called_once_with(
-            query_text="complex query", session_id="agent-ctx"
+            query_text="test query", session_id="agent-ctx"
         )
+
+        # 이벤트 큐에 응답과 완료 상태가 전송되었는지 확인
+        assert event_queue.enqueue_event.call_count == 2
 
     @pytest.mark.asyncio
     async def test_executor_error_handling(self):
@@ -270,14 +203,13 @@ class TestA2AServerMock:
 
         executor = GraphRAGAgentExecutor()
 
-        # Mock service that raises
-        mock_service = MagicMock()
-        mock_service.query_async = AsyncMock(side_effect=Exception("DB connection failed"))
-        executor._service = mock_service
+        # Mock agent service that raises
+        mock_agent = MagicMock()
+        mock_agent.query_async = AsyncMock(side_effect=Exception("DB connection failed"))
+        executor._agent_service = mock_agent
 
         ctx = MagicMock()
         ctx.message.parts = [Part(root=TextPart(text="query"))]
-        ctx.message.metadata = None
         ctx.context_id = "err-ctx"
         ctx.task_id = "err-task"
 
@@ -342,14 +274,13 @@ class TestA2AServerIntegration:
         assert card["name"] == "GraphRAG Agent"
         assert card["version"] == "1.0.0"
         assert "skills" in card
-        assert len(card["skills"]) == 2
+        assert len(card["skills"]) == 1  # Agent-only: graphrag_agent만 있음
 
         skill_ids = [s["id"] for s in card["skills"]]
-        assert "graphrag_query" in skill_ids
         assert "graphrag_agent" in skill_ids
 
     def test_query_basic(self, a2a_server, a2a_url):
-        """기본 쿼리 테스트 (message/send)"""
+        """기본 쿼리 테스트 (message/send) - Agent를 통해 처리"""
         result = send_a2a_request(
             a2a_url,
             method="message/send",
@@ -360,7 +291,7 @@ class TestA2AServerIntegration:
                     "parts": [{"kind": "text", "text": "Which actors appeared in The Matrix?"}],
                 }
             },
-            timeout=60,
+            timeout=120,
         )
 
         assert "result" in result, f"Unexpected response: {result}"
@@ -372,15 +303,15 @@ class TestA2AServerIntegration:
         answer = text_parts[0]["text"]
         assert len(answer) > 0
 
-        # 데이터 파트 확인
+        # 데이터 파트 확인 (Agent 응답)
         data_parts = [p for p in msg["parts"] if p["kind"] == "data"]
         assert len(data_parts) >= 1
         data = data_parts[0]["data"]
-        assert "route" in data
+        assert "iterations" in data
         assert "token_usage" in data
 
-    def test_query_vector_route(self, a2a_server, a2a_url):
-        """Vector 라우트 쿼리 테스트"""
+    def test_query_semantic(self, a2a_server, a2a_url):
+        """시맨틱 검색 쿼리 테스트"""
         result = send_a2a_request(
             a2a_url,
             method="message/send",
@@ -391,15 +322,17 @@ class TestA2AServerIntegration:
                     "parts": [{"kind": "text", "text": "Find me movies about toys coming alive"}],
                 }
             },
-            timeout=60,
+            timeout=120,
         )
 
         assert "result" in result
         data_parts = [p for p in result["result"]["parts"] if p["kind"] == "data"]
         assert len(data_parts) >= 1
+        data = data_parts[0]["data"]
+        assert "iterations" in data
 
-    def test_query_llm_only_route(self, a2a_server, a2a_url):
-        """LLM Only 라우트 쿼리 테스트"""
+    def test_query_general(self, a2a_server, a2a_url):
+        """일반 쿼리 테스트"""
         result = send_a2a_request(
             a2a_url,
             method="message/send",
@@ -410,16 +343,15 @@ class TestA2AServerIntegration:
                     "parts": [{"kind": "text", "text": "안녕하세요"}],
                 }
             },
-            timeout=60,
+            timeout=120,
         )
 
         assert "result" in result
-        data_parts = [p for p in result["result"]["parts"] if p["kind"] == "data"]
-        data = data_parts[0]["data"]
-        assert data["route"] == "llm_only"
+        text_parts = [p for p in result["result"]["parts"] if p["kind"] == "text"]
+        assert len(text_parts) >= 1
 
-    def test_query_with_agent_skill(self, a2a_server, a2a_url):
-        """Agent 스킬 쿼리 테스트"""
+    def test_query_complex(self, a2a_server, a2a_url):
+        """복잡한 쿼리 테스트"""
         result = send_a2a_request(
             a2a_url,
             method="message/send",
@@ -428,7 +360,6 @@ class TestA2AServerIntegration:
                     "messageId": "test-004",
                     "role": "user",
                     "parts": [{"kind": "text", "text": "What genre is Toy Story?"}],
-                    "metadata": {"skill_id": "graphrag_agent"},
                 }
             },
             timeout=120,

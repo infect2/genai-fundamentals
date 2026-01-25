@@ -386,24 +386,30 @@ async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Mess
 
     try:
         # ---------------------------------------------------------------------
-        # API 서버에 스트리밍 요청 전송
+        # API 서버에 스트리밍 요청 전송 (Agent-Only API)
         # ---------------------------------------------------------------------
         response = requests.post(
-            f"{API_BASE_URL}/query",
+            f"{API_BASE_URL}/agent/query",
             json={
                 "query": query,           # 사용자 질문
                 "session_id": session_id, # 세션 ID
-                "reset_context": reset,   # 컨텍스트 리셋 여부
                 "stream": True            # 스트리밍 모드 활성화
             },
             stream=True,  # 응답을 청크 단위로 수신 (SSE용)
-            timeout=60    # 60초 타임아웃 (LLM 응답은 시간이 걸릴 수 있음)
+            timeout=120   # 120초 타임아웃 (Agent 응답은 시간이 걸릴 수 있음)
         )
 
         # ---------------------------------------------------------------------
-        # SSE 이벤트 스트림 처리
+        # SSE 이벤트 스트림 처리 (Agent-Only API)
         # ---------------------------------------------------------------------
-        # iter_lines()는 응답을 라인 단위로 이터레이트
+        # Agent 스트리밍 이벤트 타입:
+        # - token: LLM 토큰 청크
+        # - tool_call: 도구 호출 정보
+        # - tool_result: 도구 실행 결과
+        # - done: 완료 (final_answer, token_usage 포함)
+        tool_calls = []
+        tool_results = []
+
         for line in response.iter_lines():
             if line:  # 빈 라인 무시 (SSE에서 이벤트 구분자로 사용됨)
                 # 바이트를 문자열로 디코딩
@@ -416,23 +422,36 @@ async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Mess
                         data = json.loads(line_str[6:])
 
                         # 이벤트 타입별 처리
-                        if data.get('type') == 'metadata':
-                            # 메타데이터 이벤트: Cypher 쿼리와 컨텍스트 정보
-                            # 응답 텍스트 전에 먼저 전송됨
-                            metadata['cypher'] = data.get('cypher', '')
-                            metadata['context'] = data.get('context', [])
-
-                        elif data.get('type') == 'token':
-                            # 토큰 이벤트: 응답 텍스트의 일부
-                            # LLM이 생성한 텍스트를 토큰 단위로 전송
+                        if data.get('type') == 'token':
+                            # 토큰 이벤트: LLM 응답 텍스트의 일부
                             token = data.get('content', '')
                             full_response += token  # 전체 응답에 누적
                             await msg.stream_token(token)  # 화면에 실시간 표시
 
+                        elif data.get('type') == 'tool_call':
+                            # 도구 호출 이벤트
+                            tool_calls.append({
+                                "name": data.get('tool', ''),
+                                "args": data.get('input', {})
+                            })
+
+                        elif data.get('type') == 'tool_result':
+                            # 도구 실행 결과 캡처 (Cypher Query 추출용)
+                            tool_results.append({
+                                "result": data.get('result', '')
+                            })
+
                         elif data.get('type') == 'done':
-                            # 완료 이벤트: 스트리밍 종료 (토큰 사용량 포함)
+                            # 완료 이벤트: 최종 답변과 토큰 사용량 포함
+                            if 'final_answer' in data and data['final_answer']:
+                                # 스트리밍이 없었으면 final_answer 사용
+                                if not full_response:
+                                    full_response = data['final_answer']
+                                    await msg.stream_token(full_response)
                             if 'token_usage' in data:
                                 metadata['token_usage'] = data['token_usage']
+                            metadata['tool_calls'] = tool_calls
+                            metadata['tool_results'] = tool_results
                             break
 
                         elif data.get('type') == 'error':
@@ -486,16 +505,15 @@ async def get_response(query: str, session_id: str, reset: bool) -> dict:
         - 네트워크 상태가 불안정한 경우 더 안정적일 수 있음
     """
     try:
-        # API 서버에 쿼리 요청 전송
+        # API 서버에 쿼리 요청 전송 (Agent-Only API)
         response = requests.post(
-            f"{API_BASE_URL}/query",
+            f"{API_BASE_URL}/agent/query",
             json={
                 "query": query,
                 "session_id": session_id,
-                "reset_context": reset,
                 "stream": False  # 스트리밍 비활성화
             },
-            timeout=60  # LLM 응답 대기를 위한 충분한 타임아웃
+            timeout=120  # Agent 응답 대기를 위한 충분한 타임아웃
         )
 
         if response.status_code == 200:
@@ -600,24 +618,53 @@ async def on_message(message: cl.Message):
         await msg.update()  # 메시지 내용 업데이트
 
     # -------------------------------------------------------------------------
-    # 메타데이터 표시 (Cypher 쿼리, Context, Token Usage)
+    # 메타데이터 표시 (Agent: Cypher, tool_calls, iterations, Token Usage)
     # -------------------------------------------------------------------------
-    cypher = result.get("cypher", "")
-    context = result.get("context", [])
+    thoughts = result.get("thoughts", [])
+    tool_calls = result.get("tool_calls", [])
+    tool_results = result.get("tool_results", [])
+    iterations = result.get("iterations", 0)
     token_usage = result.get("token_usage")
 
-    # Cypher 쿼리, Context, 또는 Token Usage가 있는 경우 상세 정보 표시
-    if cypher or context or token_usage:
+    # tool_results에서 Cypher Query 추출
+    cypher_queries = []
+    for tr in tool_results:
+        result_text = tr.get("result", "")
+        if "Cypher Query:" in result_text:
+            # "Cypher Query: MATCH..." 부분 추출
+            lines = result_text.split("\n")
+            for line in lines:
+                if line.startswith("Cypher Query:"):
+                    cypher = line.replace("Cypher Query:", "").strip()
+                    if cypher:
+                        cypher_queries.append(cypher)
+
+    # Agent 메타데이터가 있는 경우 상세 정보 표시
+    if thoughts or tool_calls or token_usage or cypher_queries:
         # Chainlit 2.x에서는 마크다운으로 직접 표시
-        details_content = "🔍 **상세 정보**\n\n"
+        details_content = "🔍 **Agent 상세 정보**\n\n"
 
-        if cypher:
-            details_content += "**Cypher Query:**\n```cypher\n" + cypher + "\n```\n\n"
+        if iterations:
+            details_content += f"**Iterations:** {iterations}\n\n"
 
-        if context and len(context) > 0:
-            # Context 데이터를 JSON 형식으로 포맷팅 (상위 5개만)
-            context_str = json.dumps(context[:5], indent=2, ensure_ascii=False)
-            details_content += "**Context (Top 5):**\n```json\n" + context_str + "\n```\n\n"
+        # Cypher Query 표시 (가장 중요한 정보)
+        if cypher_queries:
+            details_content += "**Cypher Query:**\n```cypher\n"
+            for cq in cypher_queries:
+                details_content += f"{cq}\n"
+            details_content += "```\n\n"
+
+        if tool_calls and len(tool_calls) > 0:
+            details_content += "**Tool Calls:**\n"
+            for tc in tool_calls[:5]:  # 최대 5개만 표시
+                tool_name = tc.get("name", "unknown")
+                tool_args = tc.get("args", {})
+                args_str = ", ".join(f"{k}={v}" for k, v in tool_args.items()) if tool_args else ""
+                if args_str:
+                    details_content += f"- `{tool_name}({args_str})`\n"
+                else:
+                    details_content += f"- `{tool_name}`\n"
+            details_content += "\n"
 
         if token_usage:
             total = token_usage.get("total_tokens", 0)

@@ -8,6 +8,7 @@ Agent가 추론하고 도구를 선택하는 방식을 결정합니다.
 REACT_SYSTEM_PROMPT = """You are a helpful movie database assistant with access to a Neo4j graph database.
 
 Your task is to help users find information about movies, actors, directors, and genres.
+You can also remember and recall user's personal information.
 
 ## Available Tools
 
@@ -27,6 +28,11 @@ You have access to the following tools:
 
 4. **get_schema**: Use this to understand the database structure.
    - Use when you need to know available node types, relationships, or properties.
+
+5. **user_memory**: Use this to store or recall user's personal information.
+   - Store: "내 차번호는 59거5249이다", "Remember my email is test@example.com"
+   - Recall: "내 차번호 뭐지?", "What's my email?"
+   - IMPORTANT: Always use this tool when user wants to store or recall personal info like car numbers, phone numbers, emails, etc.
 
 ## Important Notes
 
@@ -74,5 +80,10 @@ TOOL_DESCRIPTIONS = {
     "get_schema": (
         "Get the Neo4j database schema including node types, relationships, and properties. "
         "Use when you need to understand what data is available in the database."
+    ),
+    "user_memory": (
+        "Store or recall user's personal information like car number, phone number, email, etc. "
+        "Use when user wants to store: '내 차번호는 59거5249이다', 'Remember my email'. "
+        "Use when user wants to recall: '내 차번호 뭐지?', 'What's my email?'."
     ),
 }

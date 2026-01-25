@@ -179,7 +179,7 @@ class TestMCPServerBasic:
         tool_names = [t["name"] for t in tools]
 
         # 필수 도구 확인
-        assert "query" in tool_names
+        assert "agent_query" in tool_names
         assert "reset_session" in tool_names
         assert "list_sessions" in tool_names
 
@@ -212,11 +212,11 @@ class TestMCPServerBasic:
 
         tools = {t["name"]: t for t in tools_response["result"]["tools"]}
 
-        # query 도구 스키마 검증
-        query_tool = tools["query"]
-        assert query_tool["inputSchema"]["type"] == "object"
-        assert "query" in query_tool["inputSchema"]["properties"]
-        assert "query" in query_tool["inputSchema"]["required"]
+        # agent_query 도구 스키마 검증
+        agent_tool = tools["agent_query"]
+        assert agent_tool["inputSchema"]["type"] == "object"
+        assert "query" in agent_tool["inputSchema"]["properties"]
+        assert "query" in agent_tool["inputSchema"]["required"]
 
         # reset_session 도구 스키마 검증
         reset_tool = tools["reset_session"]
@@ -317,8 +317,8 @@ class TestMCPServerBasic:
 class TestMCPServerWithNeo4j:
     """MCP 서버 Neo4j 연동 테스트 (Neo4j 연결 필요)"""
 
-    def test_query_tool(self, mcp_client):
-        """query 도구 호출 테스트"""
+    def test_agent_query_tool(self, mcp_client):
+        """agent_query 도구 호출 테스트"""
         mcp_client.start()
 
         requests = [
@@ -338,7 +338,7 @@ class TestMCPServerWithNeo4j:
                 "method": "tools/call",
                 "id": 2,
                 "params": {
-                    "name": "query",
+                    "name": "agent_query",
                     "arguments": {
                         "query": "Which actors appeared in The Matrix?",
                         "session_id": "test-session"
@@ -347,7 +347,7 @@ class TestMCPServerWithNeo4j:
             }
         ]
 
-        responses = mcp_client.send_requests(requests, timeout=60)
+        responses = mcp_client.send_requests(requests, timeout=120)
 
         call_response = None
         for resp in responses:
@@ -364,11 +364,11 @@ class TestMCPServerWithNeo4j:
         data = json.loads(content)
 
         assert "answer" in data
-        assert "cypher" in data
-        assert "context" in data
+        assert "thoughts" in data
+        assert "iterations" in data
 
-    def test_query_with_session_context(self, mcp_client):
-        """세션 컨텍스트를 사용한 쿼리 테스트"""
+    def test_agent_query_with_session_context(self, mcp_client):
+        """세션 컨텍스트를 사용한 Agent 쿼리 테스트"""
         mcp_client.start()
 
         requests = [
@@ -389,7 +389,7 @@ class TestMCPServerWithNeo4j:
                 "method": "tools/call",
                 "id": 2,
                 "params": {
-                    "name": "query",
+                    "name": "agent_query",
                     "arguments": {
                         "query": "What is Toy Story about?",
                         "session_id": "context-test-session"
@@ -405,7 +405,7 @@ class TestMCPServerWithNeo4j:
             }
         ]
 
-        responses = mcp_client.send_requests(requests, timeout=60)
+        responses = mcp_client.send_requests(requests, timeout=120)
 
         # 세션 목록에서 세션 확인
         list_response = None

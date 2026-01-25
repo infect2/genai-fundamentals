@@ -206,7 +206,7 @@ class AgentService:
                             tc_id = tc.get("id", "")
                             if tc_id not in tool_calls_sent:
                                 tool_calls_sent.add(tc_id)
-                                yield f"data: {json.dumps({'type': 'tool_call', 'tool': tc.get('name', ''), 'input': tc.get('args', {})})}\\n\\n"
+                                yield f"data: {json.dumps({'type': 'tool_call', 'tool': tc.get('name', ''), 'input': tc.get('args', {})})}\n\n"
 
                     elif output and hasattr(output, "content") and output.content:
                         final_answer = output.content
@@ -215,7 +215,13 @@ class AgentService:
                     # 도구 실행 완료
                     output = event_data.get("output")
                     if output:
-                        result_content = output if isinstance(output, str) else str(output)
+                        # ToolMessage에서 content 추출 (LangChain 메시지 객체인 경우)
+                        if hasattr(output, "content"):
+                            result_content = output.content
+                        elif isinstance(output, str):
+                            result_content = output
+                        else:
+                            result_content = str(output)
                         # 결과가 너무 길면 잘라냄
                         if len(result_content) > 500:
                             result_content = result_content[:500] + "..."

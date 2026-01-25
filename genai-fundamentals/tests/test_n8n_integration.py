@@ -57,54 +57,50 @@ TEST_SCENARIOS = [
     {
         "name": "Query: Actors in Matrix",
         "method": "POST",
-        "endpoint": "/query",
+        "endpoint": "/agent/query",
         "body": {
             "query": "Which actors appeared in The Matrix?",
             "session_id": TEST_SESSION_ID,
-            "reset_context": True,
             "stream": False
         },
-        "expected_fields": ["answer", "cypher", "context"],
-        "description": "영화 배우 조회 쿼리"
+        "expected_fields": ["answer", "thoughts", "iterations"],
+        "description": "영화 배우 조회 쿼리 (Agent)"
     },
     {
         "name": "Query: Keanu Reeves Movies",
         "method": "POST",
-        "endpoint": "/query",
+        "endpoint": "/agent/query",
         "body": {
             "query": "What movies did Keanu Reeves act in?",
             "session_id": TEST_SESSION_ID,
-            "reset_context": False,
             "stream": False
         },
-        "expected_fields": ["answer", "cypher", "context"],
-        "description": "배우별 출연 영화 조회"
+        "expected_fields": ["answer", "thoughts", "iterations"],
+        "description": "배우별 출연 영화 조회 (Agent)"
     },
     {
         "name": "Query: Movie Directors",
         "method": "POST",
-        "endpoint": "/query",
+        "endpoint": "/agent/query",
         "body": {
             "query": "Who directed The Godfather?",
             "session_id": TEST_SESSION_ID,
-            "reset_context": False,
             "stream": False
         },
-        "expected_fields": ["answer", "cypher", "context"],
-        "description": "영화 감독 조회"
+        "expected_fields": ["answer", "thoughts", "iterations"],
+        "description": "영화 감독 조회 (Agent)"
     },
     {
         "name": "Query: Genre Search",
         "method": "POST",
-        "endpoint": "/query",
+        "endpoint": "/agent/query",
         "body": {
             "query": "Show me action movies",
             "session_id": TEST_SESSION_ID,
-            "reset_context": False,
             "stream": False
         },
-        "expected_fields": ["answer", "cypher", "context"],
-        "description": "장르별 영화 검색"
+        "expected_fields": ["answer", "thoughts", "iterations"],
+        "description": "장르별 영화 검색 (Agent)"
     },
     {
         "name": "List Sessions",
@@ -141,7 +137,7 @@ class N8NIntegrationTestRunner:
         start_time = time.time()
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 url = f"{self.base_url}{scenario['endpoint']}"
 
                 if scenario["method"] == "GET":

@@ -55,7 +55,7 @@ MCP_TEST_SCENARIOS = [
     {
         "name": "MCP List Tools",
         "type": "tools_list",
-        "expected_tools": ["query", "reset_session", "list_sessions"],
+        "expected_tools": ["agent_query", "reset_session", "list_sessions"],
         "description": "MCP 도구 목록 조회"
     },
     {
@@ -76,40 +76,40 @@ MCP_TEST_SCENARIOS = [
     },
 ]
 
-# Neo4j 필요 테스트 시나리오
+# Neo4j 필요 테스트 시나리오 (Agent-Only)
 MCP_NEO4J_TEST_SCENARIOS = [
     {
-        "name": "MCP Query: Actors in Matrix",
+        "name": "MCP Agent Query: Actors in Matrix",
         "type": "tool_call",
-        "tool_name": "query",
+        "tool_name": "agent_query",
         "arguments": {
             "query": "Which actors appeared in The Matrix?",
             "session_id": MCP_TEST_SESSION_ID
         },
-        "expected_fields": ["answer", "cypher", "context"],
-        "description": "영화 배우 조회 쿼리"
+        "expected_fields": ["answer", "thoughts", "iterations"],
+        "description": "영화 배우 조회 쿼리 (Agent)"
     },
     {
-        "name": "MCP Query: Tom Hanks Movies",
+        "name": "MCP Agent Query: Tom Hanks Movies",
         "type": "tool_call",
-        "tool_name": "query",
+        "tool_name": "agent_query",
         "arguments": {
             "query": "What movies did Tom Hanks star in?",
             "session_id": MCP_TEST_SESSION_ID
         },
-        "expected_fields": ["answer", "cypher", "context"],
-        "description": "배우별 출연 영화 조회"
+        "expected_fields": ["answer", "thoughts", "iterations"],
+        "description": "배우별 출연 영화 조회 (Agent)"
     },
     {
-        "name": "MCP Query: Movie Director",
+        "name": "MCP Agent Query: Movie Director",
         "type": "tool_call",
-        "tool_name": "query",
+        "tool_name": "agent_query",
         "arguments": {
             "query": "Who directed The Godfather?",
             "session_id": MCP_TEST_SESSION_ID
         },
-        "expected_fields": ["answer", "cypher", "context"],
-        "description": "영화 감독 조회"
+        "expected_fields": ["answer", "thoughts", "iterations"],
+        "description": "영화 감독 조회 (Agent)"
     },
     {
         "name": "MCP Reset Test Session",

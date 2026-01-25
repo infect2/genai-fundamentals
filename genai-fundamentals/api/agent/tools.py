@@ -35,7 +35,7 @@ def create_agent_tools(service: "GraphRAGService"):
             query: Natural language question about movies, actors, directors, or genres
         """
         try:
-            result = service.execute_cypher_rag(query)
+            result = service.query(query, force_route="cypher")
             output_parts = [f"Answer: {result.answer}"]
             if result.cypher:
                 output_parts.append(f"Cypher Query: {result.cypher}")
@@ -56,7 +56,7 @@ def create_agent_tools(service: "GraphRAGService"):
             top_k: Number of similar movies to return (default: 5)
         """
         try:
-            result = service.execute_vector_rag(query, top_k=top_k)
+            result = service.query(query, force_route="vector")
             output_parts = [f"Answer: {result.answer}"]
             if result.context:
                 output_parts.append(f"Found movies: {result.context[:top_k]}")
@@ -75,7 +75,7 @@ def create_agent_tools(service: "GraphRAGService"):
             top_k: Number of vector search results to include (default: 3)
         """
         try:
-            result = service.execute_hybrid_rag(query, top_k=top_k)
+            result = service.query(query, force_route="hybrid")
             output_parts = [f"Answer: {result.answer}"]
             if result.cypher:
                 output_parts.append(f"Cypher Query: {result.cypher}")
@@ -96,4 +96,20 @@ def create_agent_tools(service: "GraphRAGService"):
         except Exception as e:
             return f"Error getting schema: {str(e)}"
 
-    return [cypher_query, vector_search, hybrid_search, get_schema]
+    @tool
+    def user_memory(request: str) -> str:
+        """Store or recall user's personal information like car number, phone number, email, etc.
+        Use this tool when the user wants to:
+        - Store information: "내 차번호는 59거5249이다", "Remember my email is test@example.com"
+        - Recall information: "내 차번호 뭐지?", "What's my email?"
+
+        Args:
+            request: Natural language request to store or recall user information
+        """
+        try:
+            result = service.query(request, force_route="memory")
+            return f"Memory: {result.answer}"
+        except Exception as e:
+            return f"Error with user memory: {str(e)}"
+
+    return [cypher_query, vector_search, hybrid_search, get_schema, user_memory]

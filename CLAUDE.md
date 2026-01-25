@@ -48,7 +48,7 @@ uvicorn genai-fundamentals.api.server:app --reload --port 8000
 
 # Test the server
 curl http://localhost:8000/
-curl -X POST "http://localhost:8000/query" \
+curl -X POST "http://localhost:8000/agent/query" \
   -H "Content-Type: application/json" \
   -d '{"query": "Which actors appeared in The Matrix?"}'
 ```
@@ -78,12 +78,15 @@ chainlit run genai-fundamentals/clients/chainlit_app.py --port 8502
 |---------|-----------|----------|
 | Chat interface | ✅ | ✅ |
 | Streaming support | ✅ Toggle | ✅ Toggle |
-| Context reset | ✅ Toggle | ✅ Toggle |
+| Context reset | ✅ Toggle | ❌ (Agent handles context) |
 | API status | ✅ Sidebar | ✅ Start message |
-| Detail info (Cypher) | ✅ Expander | ✅ Text Element |
+| Detail info | ✅ Expander (Cypher) | ✅ Agent details (thoughts, tool_calls, iterations) |
 | Commands | ❌ | ✅ `/settings`, `/reset`, `/help` |
 | Action buttons | ❌ | ✅ Inline buttons |
 | Google OAuth | ❌ | ✅ `@cl.oauth_callback` |
+| API endpoint | `/query` | `/agent/query` |
+
+**Note:** Chainlit은 Agent-Only API (`/agent/query`)를 사용합니다. Streamlit은 아직 레거시 `/query` 엔드포인트를 사용하며, Agent API로 마이그레이션이 필요합니다.
 
 ### Chainlit Google OAuth 설정
 
@@ -281,92 +284,58 @@ Each exercise file in `genai-fundamentals/exercises/` has a corresponding soluti
 - **VectorCypherRetriever** - Vector search enhanced with custom Cypher queries for graph traversal
 - **Text2CypherRetriever** - Converts natural language to Cypher queries
 
-## REST API Server
+## REST API Server (Agent-Only)
+
+모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 ### Files
 - `api/server.py` - FastAPI endpoints (thin layer)
-- `api/service.py` - GraphRAG 오케스트레이션 (세션 관리, 쿼리 라우팅)
+- `api/service.py` - GraphRAG 오케스트레이션 (세션 관리, Agent가 내부적으로 사용)
 - `api/models.py` - 데이터 클래스 (TokenUsage, QueryResult, StreamingCallbackHandler)
 - `api/prompts.py` - 프롬프트 템플릿 모음
-- `api/router.py` - Query Router (쿼리 분류)
-- `api/pipelines/` - 라우트별 RAG 파이프라인 (cypher, vector, hybrid, llm_only, memory)
+- `api/router.py` - Query Router (Agent 도구에서 내부적으로 사용)
+- `api/pipelines/` - RAG 파이프라인 (Agent 도구에서 내부적으로 사용)
 
 ### Endpoints
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Server status |
 | GET | `/docs` | Swagger UI documentation |
-| POST | `/query` | Execute natural language query (with auto-routing) |
 | POST | `/agent/query` | Execute query with ReAct Agent (multi-step reasoning) |
 | POST | `/reset/{session_id}` | Reset session context |
 | GET | `/sessions` | List active sessions |
+| GET | `/history/{session_id}` | Get conversation history |
 
-### Query Request Format
-```json
-{
-  "query": "Which actors appeared in The Matrix?",
-  "session_id": "user123",      // Optional (default: "default")
-  "reset_context": false,       // Optional (default: false)
-  "stream": false,              // Optional (default: false)
-  "force_route": null           // Optional: "cypher", "vector", "hybrid", "llm_only", "memory"
-}
-```
+## MCP Server (Agent-Only)
 
-### Query Response Format (Non-streaming)
-```json
-{
-  "answer": "Hugo Weaving, Laurence Fishburne...",
-  "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
-  "context": ["{'a.name': 'Hugo Weaving'}", ...],
-  "route": "cypher",
-  "route_reasoning": "특정 영화 제목으로 배우 조회",
-  "token_usage": {
-    "total_tokens": 641,
-    "prompt_tokens": 590,
-    "completion_tokens": 51,
-    "total_cost": 0.001985
-  }
-}
-```
-
-### Streaming Response (SSE)
-When `stream: true`, response is Server-Sent Events:
-```
-data: {"type": "metadata", "cypher": "...", "context": [...], "route": "cypher", "route_reasoning": "..."}
-data: {"type": "token", "content": "Hugo "}
-data: {"type": "token", "content": "Weaving"}
-...
-data: {"type": "done", "token_usage": {"total_tokens": 641, "prompt_tokens": 590, "completion_tokens": 51, "total_cost": 0.001985}}
-```
-
-## MCP Server
-
-MCP (Model Context Protocol) 서버는 REST API와 동일한 비즈니스 로직(`service.py`)을 공유하면서 MCP 프로토콜을 통해 GraphRAG 기능을 제공합니다.
+MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 GraphRAG 기능을 제공합니다.
+모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 ### Files
 - `api/mcp_server.py` - MCP server implementation
-- `api/service.py` - GraphRAG business logic (shared with REST API)
+- `api/service.py` - GraphRAG business logic (Agent가 내부적으로 사용)
 
 ### MCP Tools
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `query` | 자연어로 Neo4j 그래프 쿼리 | `query` (필수), `session_id`, `reset_context` |
-| `agent_query` | ReAct Agent로 복잡한 쿼리 처리 (multi-step reasoning) | `query` (필수), `session_id` |
+| `agent_query` | ReAct Agent로 자연어 쿼리 처리 (multi-step reasoning) | `query` (필수), `session_id` |
 | `reset_session` | 세션 컨텍스트 초기화 | `session_id` (필수) |
 | `list_sessions` | 활성 세션 목록 조회 | - |
 
-### Query Tool Response Format
+### Agent Query Response Format
 ```json
 {
   "answer": "Hugo Weaving, Laurence Fishburne...",
-  "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
-  "context": ["{'a.name': 'Hugo Weaving'}", ...],
+  "thoughts": ["Searching for actors in The Matrix...", ...],
+  "tool_calls": [{"name": "cypher_query", "args": {...}}],
+  "tool_results": [...],
+  "iterations": 2,
   "token_usage": {
-    "total_tokens": 641,
-    "prompt_tokens": 590,
-    "completion_tokens": 51,
-    "total_cost": 0.001985
+    "total_tokens": 1500,
+    "prompt_tokens": 1200,
+    "completion_tokens": 300,
+    "total_cost": 0.0075
   }
 }
 ```
@@ -374,7 +343,7 @@ MCP (Model Context Protocol) 서버는 REST API와 동일한 비즈니스 로직
 ### Usage Example (Python)
 ```python
 # MCP 클라이언트에서 tool 호출
-result = await client.call_tool("query", {
+result = await client.call_tool("agent_query", {
     "query": "Which actors appeared in The Matrix?",
     "session_id": "user123"
 })
@@ -391,10 +360,10 @@ result = await client.call_tool("query", {
 | Use case | Web apps, curl | Claude Desktop, AI assistants | Agent-to-Agent 통신 |
 | Default port | 8000 | - | 9000 |
 
-## A2A Server
+## A2A Server (Agent-Only)
 
 A2A (Agent2Agent) 프로토콜 서버는 Google의 A2A Protocol을 통해 GraphRAG 기능을 에이전트 간 통신으로 제공합니다.
-REST API, MCP 서버와 동일한 비즈니스 로직(`service.py`)을 공유합니다.
+모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 **A2A vs MCP:**
 - MCP: Agent → Tools (에이전트가 도구를 호출)
@@ -429,13 +398,12 @@ AgentCard는 에이전트의 기능을 자기 기술하는 매니페스트입니
 
 | Skill ID | 설명 | 예시 쿼리 |
 |----------|------|----------|
-| `graphrag_query` | Query Router 기반 자동 RAG 파이프라인 선택 | "Which actors appeared in The Matrix?" |
-| `graphrag_agent` | ReAct Agent multi-step reasoning | "톰 행크스와 비슷한 배우가 출연한 SF 영화는?" |
+| `graphrag_agent` | ReAct Agent multi-step reasoning | "Which actors appeared in The Matrix?", "톰 행크스와 비슷한 배우가 출연한 SF 영화는?" |
 
 ### 쿼리 테스트
 
 ```bash
-# 일반 쿼리 (message/send)
+# 쿼리 (message/send)
 curl -X POST http://localhost:9000/ \
   -H "Content-Type: application/json" \
   -d '{
@@ -450,47 +418,19 @@ curl -X POST http://localhost:9000/ \
       }
     }
   }'
-
-# Agent 쿼리 (skill_id 지정)
-curl -X POST http://localhost:9000/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": "2",
-    "method": "message/send",
-    "params": {
-      "message": {
-        "messageId": "msg-002",
-        "role": "user",
-        "parts": [{"kind": "text", "text": "톰 행크스와 비슷한 배우가 출연한 SF 영화는?"}],
-        "metadata": {"skill_id": "graphrag_agent"}
-      }
-    }
-  }'
 ```
 
 ### 응답 형식
 
 응답은 TextPart (자연어 답변) + DataPart (구조화 데이터)로 구성됩니다:
 
-**Query 응답 DataPart:**
-```json
-{
-  "cypher": "MATCH (a:Actor)-[:ACTED_IN]->(m:Movie)...",
-  "context": ["{'a.name': 'Hugo Weaving'}", ...],
-  "route": "cypher",
-  "route_reasoning": "특정 영화 제목으로 배우 조회",
-  "token_usage": {"total_tokens": 641, "total_cost": 0.001985}
-}
-```
-
 **Agent 응답 DataPart:**
 ```json
 {
-  "thoughts": ["First, I'll find Tom Hanks movies...", ...],
+  "thoughts": ["First, I'll search for actors in The Matrix...", ...],
   "tool_calls": [{"name": "cypher_query", "args": {...}}],
-  "iterations": 3,
-  "token_usage": {"total_tokens": 2500, "total_cost": 0.0125}
+  "iterations": 2,
+  "token_usage": {"total_tokens": 1500, "total_cost": 0.0075}
 }
 ```
 
@@ -502,24 +442,10 @@ curl -X POST http://localhost:9000/ \
 | `api/service.py` | GraphRAG 비즈니스 로직 (공유) |
 | `api/agent/service.py` | ReAct Agent 로직 (공유) |
 
-## Query Router
+## Query Router (Internal)
 
-Query Router는 쿼리 유형에 따라 적합한 RAG 파이프라인을 자동 선택합니다.
-
-### 아키텍처
-
-```
-사용자 쿼리
-    ↓
-┌─────────────────┐
-│  Query Router   │ ← LLM 기반 쿼리 분류
-└────────┬────────┘
-         ↓
-    ┌────┴────┬─────────┬─────────┬─────────┐
-    ↓         ↓         ↓         ↓         ↓
- cypher    vector    hybrid   llm_only   memory
-  RAG       RAG       RAG     (직접응답)  (저장/조회)
-```
+Query Router는 Agent 도구 내부에서 쿼리 유형에 따라 적합한 RAG 파이프라인을 자동 선택합니다.
+API 엔드포인트로 직접 노출되지 않으며, Agent가 내부적으로 사용합니다.
 
 ### 라우트 타입
 
@@ -530,22 +456,6 @@ Query Router는 쿼리 유형에 따라 적합한 RAG 파이프라인을 자동 
 | `hybrid` | 복합 쿼리 (Vector + Cypher) | "90년대 액션 영화 중 평점 높은 것" |
 | `llm_only` | 일반 질문 (DB 조회 없음) | "영화란 무엇인가요?" |
 | `memory` | 사용자 정보 저장/조회 (Neo4j) | "내 차번호는 59구8426이야 기억해", "내 차번호 뭐지?" |
-
-### 사용 예시
-
-```bash
-# 자동 라우팅 (기본)
-curl -X POST "http://localhost:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "톰 행크스가 출연한 영화는?"}'
-# → route: "cypher"
-
-# 강제 라우팅 (특정 파이프라인 지정)
-curl -X POST "http://localhost:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "슬픈 영화", "force_route": "vector"}'
-# → route: "vector" (강제)
-```
 
 ### 테스트
 
@@ -560,17 +470,10 @@ pytest genai-fundamentals/tests/test_router.py -v -k "mock"
 pytest genai-fundamentals/tests/test_router.py -v -k "integration"
 ```
 
-### 라우팅 비활성화
-
-```python
-# 라우팅 없이 항상 Cypher RAG 사용
-service = GraphRAGService(enable_routing=False)
-```
-
 ## ReAct Agent
 
 ReAct (Reasoning + Acting) Agent는 LangGraph를 사용하여 multi-step reasoning을 수행합니다.
-Query Router가 단일 분류로 파이프라인을 선택하는 반면, Agent는 여러 도구를 조합하여 복잡한 쿼리를 처리합니다.
+모든 API 요청은 이 Agent를 통해 처리되며, Agent는 내부적으로 여러 도구를 조합하여 쿼리를 처리합니다.
 
 ### 아키텍처
 
@@ -592,16 +495,6 @@ Query Router가 단일 분류로 파이프라인을 선택하는 반면, Agent�
     ↓
 최종 답변
 ```
-
-### Query Router vs ReAct Agent
-
-| 특성 | Query Router (`/query`) | ReAct Agent (`/agent/query`) |
-|------|------------------------|------------------------------|
-| 추론 방식 | 단일 분류 | Multi-step reasoning |
-| 도구 사용 | 1개 파이프라인 | 여러 도구 조합 가능 |
-| 적합한 쿼리 | 단순 질문 | 복잡한 질문 |
-| 응답 속도 | 빠름 | 상대적으로 느림 |
-| 토큰 비용 | 낮음 | 높음 |
 
 ### 사용 예시
 
@@ -701,11 +594,8 @@ class TokenUsage:
 
 | 엔드포인트 | 추적 대상 |
 |-----------|----------|
-| `POST /query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only/memory) |
 | `POST /agent/query` | Agent reasoning + Tool 내 LLM 호출 |
-| MCP `query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only/memory) |
 | MCP `agent_query` | Agent reasoning + Tool 내 LLM 호출 |
-| A2A `graphrag_query` | Router 분류 + RAG 파이프라인 (cypher/vector/hybrid/llm_only/memory) |
 | A2A `graphrag_agent` | Agent reasoning + Tool 내 LLM 호출 |
 
 ### 관련 파일

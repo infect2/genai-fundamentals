@@ -1,14 +1,15 @@
 """
-GraphRAG REST API Server
+GraphRAG REST API Server (Agent-Only)
 
 FastAPI 기반의 REST API 서버입니다.
-GraphRAG 비즈니스 로직은 graph_rag_service 모듈에 위임합니다.
+모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 엔드포인트:
-- GET  /           : 서버 상태 확인
-- POST /query      : 자연어 쿼리 실행 (스트리밍/비스트리밍)
-- POST /reset/{id} : 세션 컨텍스트 리셋
-- GET  /sessions   : 활성 세션 목록
+- GET  /              : 서버 상태 확인
+- POST /agent/query   : Agent 쿼리 실행 (스트리밍/비스트리밍)
+- POST /reset/{id}    : 세션 컨텍스트 리셋
+- GET  /sessions      : 활성 세션 목록
+- GET  /history/{id}  : 대화 이력 조회
 
 실행 방법:
     python -m genai-fundamentals.api.server
@@ -58,24 +59,6 @@ async def startup_event():
 # Request/Response 모델
 # =============================================================================
 
-class QueryRequest(BaseModel):
-    """
-    /query 엔드포인트 요청 모델
-
-    Attributes:
-        query: 사용자 질문 (필수)
-        session_id: 세션 ID (선택, 기본값: "default")
-        reset_context: 컨텍스트 리셋 여부 (선택, 기본값: False)
-        stream: 스트리밍 응답 여부 (선택, 기본값: False)
-        force_route: 강제 라우트 지정 (선택, cypher/vector/hybrid/llm_only)
-    """
-    query: str
-    session_id: Optional[str] = "default"
-    reset_context: bool = False
-    stream: bool = False
-    force_route: Optional[str] = None
-
-
 class TokenUsageResponse(BaseModel):
     """
     토큰 사용량 응답 모델
@@ -90,26 +73,6 @@ class TokenUsageResponse(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_cost: float = 0.0
-
-
-class QueryResponse(BaseModel):
-    """
-    /query 엔드포인트 응답 모델 (비스트리밍)
-
-    Attributes:
-        answer: LLM이 생성한 자연어 답변
-        cypher: 생성된 Cypher 쿼리
-        context: Neo4j에서 가져온 원본 데이터
-        route: 사용된 라우트 타입 (cypher, vector, hybrid, llm_only)
-        route_reasoning: 라우팅 결정 이유
-        token_usage: LLM 토큰 사용량
-    """
-    answer: str
-    cypher: str
-    context: list
-    route: str = ""
-    route_reasoning: str = ""
-    token_usage: Optional[TokenUsageResponse] = None
 
 
 class AgentQueryRequest(BaseModel):
@@ -165,70 +128,6 @@ def root():
     }
 
 
-@app.post("/query")
-async def query(request: QueryRequest):
-    """
-    자연어 쿼리 처리 엔드포인트
-
-    Query Router를 통해 쿼리 유형을 자동 분류하고
-    적합한 RAG 파이프라인을 선택하여 실행합니다.
-
-    스트리밍 여부에 따라 응답 형식이 달라집니다:
-    - stream=False: JSON 응답 (QueryResponse)
-    - stream=True: SSE 스트리밍 응답
-
-    Args:
-        request: QueryRequest 객체
-
-    Returns:
-        QueryResponse 또는 StreamingResponse
-
-    Raises:
-        HTTPException: 처리 중 오류 발생 시 500 에러
-    """
-    try:
-        if request.stream:
-            # 스트리밍 응답: Server-Sent Events (SSE)
-            return StreamingResponse(
-                service.query_stream(
-                    query_text=request.query,
-                    session_id=request.session_id,
-                    reset_context=request.reset_context,
-                    force_route=request.force_route
-                ),
-                media_type="text/event-stream"
-            )
-        else:
-            # 비스트리밍 응답: JSON
-            result = await service.query_async(
-                query_text=request.query,
-                session_id=request.session_id,
-                reset_context=request.reset_context,
-                force_route=request.force_route
-            )
-
-            token_usage = None
-            if result.token_usage:
-                token_usage = TokenUsageResponse(
-                    total_tokens=result.token_usage.total_tokens,
-                    prompt_tokens=result.token_usage.prompt_tokens,
-                    completion_tokens=result.token_usage.completion_tokens,
-                    total_cost=result.token_usage.total_cost
-                )
-
-            return QueryResponse(
-                answer=result.answer,
-                cypher=result.cypher,
-                context=result.context,
-                route=result.route,
-                route_reasoning=result.route_reasoning,
-                token_usage=token_usage
-            )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/reset/{session_id}")
 def reset_session(session_id: str):
     """
@@ -277,18 +176,14 @@ def get_history(session_id: str):
     return {"session_id": session_id, "messages": messages}
 
 
-# =============================================================================
-# Agent API 엔드포인트
-# =============================================================================
-
 @app.post("/agent/query")
 async def agent_query(request: AgentQueryRequest):
     """
     ReAct Agent를 사용한 자연어 쿼리 처리 엔드포인트
 
-    Multi-step reasoning을 통해 복잡한 쿼리를 처리합니다.
-    기존 /query 엔드포인트와 달리 여러 도구를 조합하여
-    답변을 생성합니다.
+    Multi-step reasoning을 통해 쿼리를 처리합니다.
+    여러 도구(cypher_query, vector_search, hybrid_search 등)를
+    조합하여 답변을 생성합니다.
 
     스트리밍 여부에 따라 응답 형식이 달라집니다:
     - stream=False: JSON 응답 (AgentQueryResponse)

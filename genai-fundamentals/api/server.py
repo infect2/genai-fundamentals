@@ -187,12 +187,14 @@ def get_history(session_id: str):
 @app.get("/cache/stats")
 def get_cache_stats():
     """
-    캐시 통계 조회 엔드포인트
+    캐시 및 동시성 통계 조회 엔드포인트
 
-    쿼리 캐시의 현재 상태와 히트율을 반환합니다.
+    쿼리 캐시, Request Coalescer, LLM Semaphore의 현재 상태를 반환합니다.
 
     Returns:
-        캐시 통계 (size, hits, misses, hit_rate 등)
+        - cache: 캐시 통계 (size, hits, misses, hit_rate, coalesced)
+        - coalescer: Request Coalescing 통계 (in_flight, coalesced, executed)
+        - semaphore: LLM Semaphore 통계 (current, max_concurrent, utilization)
     """
     return agent_service.get_cache_stats()
 

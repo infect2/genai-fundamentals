@@ -8,11 +8,14 @@ Performance Optimizations:
 - Query result caching (LRU with TTL)
 - Schema caching
 - Concurrent request handling
+- Request coalescing (동일 쿼리 동시 요청 병합)
+- LLM semaphore (동시 API 호출 제한)
 """
 
 import json
 import asyncio
 import hashlib
+import logging
 from dataclasses import dataclass, asdict
 from typing import Optional, List, AsyncGenerator, Any
 
@@ -23,7 +26,9 @@ from ...tools.llm_provider import get_token_tracker
 from .graph import create_agent_graph
 from .state import AgentState
 from ..models import TokenUsage
-from ..cache import get_cache, QueryCache
+from ..cache import get_cache, get_coalescer, get_llm_semaphore, QueryCache
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,7 +74,8 @@ class AgentService:
         graphrag_service,
         model_name: Optional[str] = None,
         enable_cache: bool = True,
-        cache_ttl: float = 300  # 5 minutes
+        cache_ttl: float = 300,  # 5 minutes
+        max_concurrent_llm: int = 10  # 최대 동시 LLM 호출 수
     ):
         """
         AgentService 초기화
@@ -79,6 +85,7 @@ class AgentService:
             model_name: Agent에서 사용할 LLM 모델 (기본값: 프로바이더별 환경변수)
             enable_cache: 캐싱 활성화 여부
             cache_ttl: 캐시 TTL (초)
+            max_concurrent_llm: 최대 동시 LLM API 호출 수 (기본: 10)
         """
         self._graphrag_service = graphrag_service
         self._model_name = model_name
@@ -86,6 +93,10 @@ class AgentService:
         self._enable_cache = enable_cache
         self._cache_ttl = cache_ttl
         self._cache: QueryCache = get_cache() if enable_cache else None
+
+        # 동시성 최적화
+        self._coalescer = get_coalescer()
+        self._semaphore = get_llm_semaphore(max_concurrent_llm)
 
     def query(
         self,
@@ -152,7 +163,12 @@ class AgentService:
         use_cache: bool = True
     ) -> AgentResult:
         """
-        자연어 쿼리 실행 (비동기 방식)
+        자연어 쿼리 실행 (비동기 방식, 동시성 최적화)
+
+        Features:
+        - 캐시 히트 시 즉시 반환
+        - Request Coalescing: 동일 쿼리 동시 요청 병합
+        - LLM Semaphore: 동시 API 호출 수 제한
 
         Args:
             query_text: 사용자 질문
@@ -162,42 +178,63 @@ class AgentService:
         Returns:
             AgentResult 객체
         """
-        # 캐시 확인
+        # 1. 캐시 확인 (가장 빠른 경로)
         if use_cache and self._cache:
             cached = self._cache.get(query_text, session_id)
             if cached is not None:
+                logger.debug(f"Cache hit for query: {query_text[:50]}...")
                 return self._dict_to_result(cached)
 
-        # 초기 상태 설정
-        initial_state: AgentState = {
-            "messages": [HumanMessage(content=query_text)],
-            "session_id": session_id,
-            "tool_results": [],
-            "iteration": 0,
-            "final_answer": None
-        }
+        # 2. 쿼리 키 생성 (coalescing용)
+        query_key = self._make_query_key(query_text, session_id)
 
-        # 비동기 그래프 실행 (토큰 사용량 추적)
-        with get_token_tracker() as cb:
-            final_state = await self._graph.ainvoke(initial_state)
+        # 3. Request Coalescing + Semaphore를 사용한 실행
+        async def execute_query():
+            # Semaphore로 동시 LLM 호출 제한
+            async with await self._semaphore.acquire():
+                logger.debug(f"Executing query with semaphore: {query_text[:50]}...")
 
-        # 결과 추출
-        result = self._extract_result(final_state)
-        result.token_usage = TokenUsage(
-            total_tokens=cb.total_tokens,
-            prompt_tokens=cb.prompt_tokens,
-            completion_tokens=cb.completion_tokens,
-            total_cost=cb.total_cost
-        )
+                # 초기 상태 설정
+                initial_state: AgentState = {
+                    "messages": [HumanMessage(content=query_text)],
+                    "session_id": session_id,
+                    "tool_results": [],
+                    "iteration": 0,
+                    "final_answer": None
+                }
 
-        # 캐시 저장
-        if use_cache and self._cache:
-            self._cache.set(query_text, session_id, self._result_to_dict(result), self._cache_ttl)
+                # 비동기 그래프 실행 (토큰 사용량 추적)
+                with get_token_tracker() as cb:
+                    final_state = await self._graph.ainvoke(initial_state)
 
-        # 대화 이력 저장 (Neo4j에 영속화)
-        self._save_to_history(session_id, query_text, result.answer)
+                # 결과 추출
+                result = self._extract_result(final_state)
+                result.token_usage = TokenUsage(
+                    total_tokens=cb.total_tokens,
+                    prompt_tokens=cb.prompt_tokens,
+                    completion_tokens=cb.completion_tokens,
+                    total_cost=cb.total_cost
+                )
 
+                # 캐시 저장
+                if use_cache and self._cache:
+                    self._cache.set(query_text, session_id, self._result_to_dict(result), self._cache_ttl)
+
+                # 대화 이력 저장 (Neo4j에 영속화)
+                self._save_to_history(session_id, query_text, result.answer)
+
+                return result
+
+        # Coalescing: 동일 쿼리 동시 요청 병합
+        result = await self._coalescer.execute(query_key, execute_query)
         return result
+
+    def _make_query_key(self, query_text: str, session_id: str) -> str:
+        """쿼리 키 생성 (coalescing용)"""
+        # 캐시와 동일한 정규화 로직 사용
+        if self._cache:
+            return self._cache._make_key(query_text, session_id)
+        return hashlib.md5(f"{query_text}:{session_id}".encode()).hexdigest()
 
     async def query_stream(
         self,
@@ -384,10 +421,13 @@ class AgentService:
         )
 
     def get_cache_stats(self) -> dict:
-        """캐시 통계 반환"""
-        if self._cache:
-            return self._cache.get_stats()
-        return {"enabled": False}
+        """캐시 및 동시성 통계 반환"""
+        stats = {
+            "cache": self._cache.get_stats() if self._cache else {"enabled": False},
+            "coalescer": self._coalescer.get_stats() if self._coalescer else {"enabled": False},
+            "semaphore": self._semaphore.get_stats() if self._semaphore else {"enabled": False}
+        }
+        return stats
 
 
 # =============================================================================

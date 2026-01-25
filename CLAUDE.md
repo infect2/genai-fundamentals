@@ -667,22 +667,36 @@ class TokenUsage:
 | `api/mcp_server.py` | 응답 JSON에 token_usage 포함 |
 | `api/a2a_server.py` | 응답 DataPart에 token_usage 포함 |
 
-## Query Cache
+## Query Cache & Concurrency
 
-Agent 쿼리 결과를 캐싱하여 성능을 최적화합니다. LRU (Least Recently Used) 기반의 인메모리 캐시로, TTL과 유사 쿼리 매칭을 지원합니다.
+Agent 쿼리 결과를 캐싱하고 동시 요청을 효율적으로 처리합니다.
+
+### 주요 기능
+
+| 기능 | 설명 |
+|------|------|
+| **LRU Cache** | TTL 기반 쿼리 결과 캐싱 |
+| **Query Normalization** | 유사 쿼리 자동 매칭 |
+| **Request Coalescing** | 동일 쿼리 동시 요청 병합 |
+| **LLM Semaphore** | 동시 API 호출 수 제한 |
 
 ### 아키텍처
 
 ```
-사용자 쿼리
+동시 요청 (Query A, Query A, Query B)
     ↓
 ┌─────────────────────────────────────────────────────┐
-│                 Query Cache                          │
-│  1. 쿼리 정규화 (Query Normalization)                  │
-│  2. MD5 해시 키 생성                                   │
-│  3. LRU 캐시 조회                                     │
-│     ├─ HIT  → 캐시된 결과 반환 (~0.01s)               │
-│     └─ MISS → Agent 실행 → 결과 캐싱                  │
+│           1. Query Cache (LRU + TTL)                 │
+│     ├─ HIT  → 캐시된 결과 즉시 반환 (~0.01s)          │
+│     └─ MISS ↓                                        │
+├─────────────────────────────────────────────────────┤
+│           2. Request Coalescer                       │
+│     동일 쿼리 (Query A × 2) → 1회만 실행, 결과 공유    │
+├─────────────────────────────────────────────────────┤
+│           3. LLM Semaphore (max_concurrent=10)       │
+│     동시 LLM API 호출 수 제한 → Rate Limit 방지       │
+├─────────────────────────────────────────────────────┤
+│           4. Agent 실행 → 결과 캐싱                   │
 └─────────────────────────────────────────────────────┘
     ↓
 응답
@@ -715,47 +729,78 @@ Agent 쿼리 결과를 캐싱하여 성능을 최적화합니다. LRU (Least Rec
 
 ### 설정
 
-AgentService 생성 시 캐시 설정을 지정할 수 있습니다:
+AgentService 생성 시 캐시 및 동시성 설정을 지정할 수 있습니다:
 
 ```python
 agent_service = AgentService(
     graphrag_service,
-    enable_cache=True,      # 캐싱 활성화 (기본: True)
-    cache_ttl=300           # TTL 5분 (기본값)
+    enable_cache=True,       # 캐싱 활성화 (기본: True)
+    cache_ttl=300,           # TTL 5분 (기본값)
+    max_concurrent_llm=10    # 최대 동시 LLM 호출 (기본: 10)
 )
 ```
 
-QueryCache 싱글톤 설정:
+개별 컴포넌트 설정:
 
 ```python
-from genai_fundamentals.api.cache import get_cache
+from genai_fundamentals.api.cache import get_cache, get_coalescer, get_llm_semaphore
 
+# 캐시 설정
 cache = get_cache(
     max_size=1000,          # 최대 캐시 엔트리 수 (기본: 1000)
     default_ttl=300,        # 기본 TTL 5분 (기본: 300초)
     schema_ttl=3600         # 스키마 TTL 1시간 (기본: 3600초)
 )
+
+# Request Coalescer (자동 활성화)
+coalescer = get_coalescer()
+
+# LLM Semaphore
+semaphore = get_llm_semaphore(max_concurrent=10)  # 최대 동시 호출 수
 ```
 
 ### API 엔드포인트
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/cache/stats` | 캐시 통계 조회 |
+| GET | `/cache/stats` | 캐시 및 동시성 통계 조회 |
 | POST | `/cache/clear` | 캐시 전체 삭제 |
 
-**캐시 통계 응답:**
+**통계 응답 (확장됨):**
 ```json
 {
-  "size": 56,
-  "max_size": 1000,
-  "hits": 892,
-  "misses": 48,
-  "evictions": 0,
-  "hit_rate": "94.89%",
-  "schema_cached": true
+  "cache": {
+    "size": 56,
+    "max_size": 1000,
+    "hits": 892,
+    "misses": 48,
+    "evictions": 0,
+    "coalesced": 23,
+    "hit_rate": "94.89%",
+    "schema_cached": true
+  },
+  "coalescer": {
+    "in_flight": 2,
+    "coalesced": 156,
+    "executed": 234
+  },
+  "semaphore": {
+    "max_concurrent": 10,
+    "current": 3,
+    "total_acquired": 500,
+    "total_waited": 120,
+    "utilization": "30.0%"
+  }
 }
 ```
+
+| 필드 | 설명 |
+|------|------|
+| `cache.coalesced` | 병합된 요청 수 |
+| `coalescer.in_flight` | 현재 실행 중인 고유 쿼리 수 |
+| `coalescer.coalesced` | 병합되어 실행되지 않은 요청 수 |
+| `semaphore.current` | 현재 동시 LLM 호출 수 |
+| `semaphore.utilization` | Semaphore 사용률 |
 
 ### 캐시 바이패스
 
@@ -775,8 +820,8 @@ result = await agent_service.query_async(query_text, session_id, use_cache=False
 
 | 파일 | 역할 |
 |------|------|
-| `api/cache.py` | QueryCache 클래스 (LRU, TTL, 정규화) |
-| `api/agent/service.py` | AgentService 캐시 통합 |
+| `api/cache.py` | QueryCache, RequestCoalescer, LLMSemaphore |
+| `api/agent/service.py` | AgentService 캐시/동시성 통합 |
 | `api/server.py` | `/cache/stats`, `/cache/clear` 엔드포인트 |
 
 ### 모니터링

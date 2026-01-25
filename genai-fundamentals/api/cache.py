@@ -10,16 +10,20 @@ Features:
 - 쿼리 정규화를 통한 유사 쿼리 매칭
 - 스키마 캐싱 (장기 TTL)
 - 통계 및 모니터링
+- Request Coalescing (동일 쿼리 동시 요청 병합)
+- LLM Semaphore (동시 API 호출 제한)
 """
 
 import hashlib
 import time
 import threading
+import asyncio
 import re
-from typing import Optional, Any, Dict, Tuple
+from typing import Optional, Any, Dict, Tuple, Callable, Awaitable
 from dataclasses import dataclass, field
 from collections import OrderedDict
 from functools import lru_cache
+from concurrent.futures import Future
 import logging
 
 logger = logging.getLogger(__name__)
@@ -44,11 +48,175 @@ class CacheStats:
     hits: int = 0
     misses: int = 0
     evictions: int = 0
+    coalesced: int = 0  # 병합된 요청 수
 
     @property
     def hit_rate(self) -> float:
         total = self.hits + self.misses
         return self.hits / total if total > 0 else 0.0
+
+
+# =============================================================================
+# Request Coalescing (동시 요청 병합)
+# =============================================================================
+
+class RequestCoalescer:
+    """
+    동일한 쿼리에 대한 동시 요청을 병합합니다.
+
+    여러 클라이언트가 동시에 같은 쿼리를 요청하면,
+    첫 번째 요청만 실제로 실행하고 나머지는 결과를 공유합니다.
+
+    Usage:
+        coalescer = RequestCoalescer()
+
+        async def handle_query(query: str):
+            async def execute():
+                return await expensive_llm_call(query)
+
+            return await coalescer.execute(query, execute)
+    """
+
+    def __init__(self):
+        self._in_flight: Dict[str, asyncio.Future] = {}
+        self._lock = asyncio.Lock()
+        self._stats = {"coalesced": 0, "executed": 0}
+
+    async def execute(
+        self,
+        key: str,
+        func: Callable[[], Awaitable[Any]]
+    ) -> Any:
+        """
+        쿼리 실행 (동시 요청 병합)
+
+        Args:
+            key: 요청 식별 키 (정규화된 쿼리 해시)
+            func: 실제 실행할 비동기 함수
+
+        Returns:
+            실행 결과
+        """
+        async with self._lock:
+            # 이미 실행 중인 동일 요청이 있는지 확인
+            if key in self._in_flight:
+                self._stats["coalesced"] += 1
+                logger.debug(f"Request coalesced: {key[:16]}...")
+                future = self._in_flight[key]
+            else:
+                # 새로운 Future 생성
+                future = asyncio.get_event_loop().create_future()
+                self._in_flight[key] = future
+                self._stats["executed"] += 1
+
+                # 락 해제 후 실행 (다른 요청이 대기 가능하도록)
+                asyncio.create_task(self._execute_and_resolve(key, func, future))
+
+        # 결과 대기
+        return await future
+
+    async def _execute_and_resolve(
+        self,
+        key: str,
+        func: Callable[[], Awaitable[Any]],
+        future: asyncio.Future
+    ) -> None:
+        """실제 실행 및 Future 해결"""
+        try:
+            result = await func()
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+        finally:
+            # 완료 후 in-flight에서 제거
+            async with self._lock:
+                self._in_flight.pop(key, None)
+
+    def get_stats(self) -> Dict[str, int]:
+        """통계 반환"""
+        return {
+            "in_flight": len(self._in_flight),
+            "coalesced": self._stats["coalesced"],
+            "executed": self._stats["executed"]
+        }
+
+
+# =============================================================================
+# LLM Semaphore (동시 API 호출 제한)
+# =============================================================================
+
+class LLMSemaphore:
+    """
+    LLM API 동시 호출 수를 제한합니다.
+
+    Rate limiting 방지 및 안정적인 서비스를 위해
+    동시 LLM API 호출 수를 제한합니다.
+
+    Usage:
+        semaphore = LLMSemaphore(max_concurrent=10)
+
+        async def call_llm():
+            async with semaphore.acquire():
+                return await llm.ainvoke(...)
+    """
+
+    def __init__(self, max_concurrent: int = 10):
+        """
+        Args:
+            max_concurrent: 최대 동시 호출 수 (기본: 10)
+        """
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._max_concurrent = max_concurrent
+        self._current = 0
+        self._total_acquired = 0
+        self._total_waited = 0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        """세마포어 획득 (컨텍스트 매니저)"""
+        return _SemaphoreContext(self)
+
+    async def _acquire(self):
+        """내부 획득"""
+        waited = not self._semaphore.locked()
+        await self._semaphore.acquire()
+
+        async with self._lock:
+            self._current += 1
+            self._total_acquired += 1
+            if not waited:
+                self._total_waited += 1
+
+    async def _release(self):
+        """내부 해제"""
+        self._semaphore.release()
+        async with self._lock:
+            self._current -= 1
+
+    def get_stats(self) -> Dict[str, Any]:
+        """통계 반환"""
+        return {
+            "max_concurrent": self._max_concurrent,
+            "current": self._current,
+            "total_acquired": self._total_acquired,
+            "total_waited": self._total_waited,
+            "utilization": f"{(self._current / self._max_concurrent) * 100:.1f}%"
+        }
+
+
+class _SemaphoreContext:
+    """세마포어 컨텍스트 매니저"""
+
+    def __init__(self, semaphore: LLMSemaphore):
+        self._semaphore = semaphore
+
+    async def __aenter__(self):
+        await self._semaphore._acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._semaphore._release()
+        return False
 
 
 class QueryCache:
@@ -268,9 +436,15 @@ class QueryCache:
                 "hits": self._stats.hits,
                 "misses": self._stats.misses,
                 "evictions": self._stats.evictions,
+                "coalesced": self._stats.coalesced,
                 "hit_rate": f"{self._stats.hit_rate:.2%}",
                 "schema_cached": self._schema_cache is not None
             }
+
+    def increment_coalesced(self) -> None:
+        """병합된 요청 수 증가"""
+        with self._lock:
+            self._stats.coalesced += 1
 
     def cleanup_expired(self) -> int:
         """만료된 엔트리 정리"""
@@ -321,6 +495,57 @@ def get_cache(
 
 
 # =============================================================================
+# Request Coalescer 싱글톤
+# =============================================================================
+
+_coalescer_instance: Optional[RequestCoalescer] = None
+_coalescer_lock = threading.Lock()
+
+
+def get_coalescer() -> RequestCoalescer:
+    """
+    RequestCoalescer 싱글톤 인스턴스 반환
+
+    동일 쿼리의 동시 요청을 병합하여 LLM API 호출을 최소화합니다.
+    """
+    global _coalescer_instance
+
+    if _coalescer_instance is None:
+        with _coalescer_lock:
+            if _coalescer_instance is None:
+                _coalescer_instance = RequestCoalescer()
+
+    return _coalescer_instance
+
+
+# =============================================================================
+# LLM Semaphore 싱글톤
+# =============================================================================
+
+_semaphore_instance: Optional[LLMSemaphore] = None
+_semaphore_lock = threading.Lock()
+
+
+def get_llm_semaphore(max_concurrent: int = 10) -> LLMSemaphore:
+    """
+    LLMSemaphore 싱글톤 인스턴스 반환
+
+    Args:
+        max_concurrent: 최대 동시 LLM API 호출 수 (기본: 10)
+
+    동시 LLM API 호출 수를 제한하여 rate limiting을 방지합니다.
+    """
+    global _semaphore_instance
+
+    if _semaphore_instance is None:
+        with _semaphore_lock:
+            if _semaphore_instance is None:
+                _semaphore_instance = LLMSemaphore(max_concurrent=max_concurrent)
+
+    return _semaphore_instance
+
+
+# =============================================================================
 # 캐시 데코레이터
 # =============================================================================
 
@@ -349,3 +574,25 @@ def cached_query(ttl: float = 300):
             return result
         return wrapper
     return decorator
+
+
+# =============================================================================
+# 통합 통계
+# =============================================================================
+
+def get_all_stats() -> Dict[str, Any]:
+    """
+    모든 캐시/동시성 관련 통계 반환
+
+    Returns:
+        cache, coalescer, semaphore 통계를 포함한 dict
+    """
+    cache = get_cache()
+    coalescer = get_coalescer()
+    semaphore = get_llm_semaphore()
+
+    return {
+        "cache": cache.get_stats(),
+        "coalescer": coalescer.get_stats(),
+        "semaphore": semaphore.get_stats()
+    }

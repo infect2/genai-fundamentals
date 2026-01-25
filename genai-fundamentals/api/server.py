@@ -184,6 +184,35 @@ def get_history(session_id: str):
     return {"session_id": session_id, "messages": messages}
 
 
+@app.get("/cache/stats")
+def get_cache_stats():
+    """
+    캐시 통계 조회 엔드포인트
+
+    쿼리 캐시의 현재 상태와 히트율을 반환합니다.
+
+    Returns:
+        캐시 통계 (size, hits, misses, hit_rate 등)
+    """
+    return agent_service.get_cache_stats()
+
+
+@app.post("/cache/clear")
+def clear_cache():
+    """
+    캐시 초기화 엔드포인트
+
+    모든 캐시된 쿼리 결과를 삭제합니다.
+
+    Returns:
+        삭제된 엔트리 수
+    """
+    from .cache import get_cache
+    cache = get_cache()
+    cleared = cache.invalidate()
+    return {"cleared": cleared, "message": f"Cleared {cleared} cache entries"}
+
+
 @app.post("/agent/query")
 async def agent_query(request: AgentQueryRequest, req: Request):
     """

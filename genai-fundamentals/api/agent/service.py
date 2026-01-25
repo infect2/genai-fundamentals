@@ -3,11 +3,17 @@ Agent Service Module
 
 AgentService는 ReAct Agent의 통합 인터페이스를 제공합니다.
 기존 GraphRAGService와 LangGraph Agent를 연결합니다.
+
+Performance Optimizations:
+- Query result caching (LRU with TTL)
+- Schema caching
+- Concurrent request handling
 """
 
 import json
 import asyncio
-from dataclasses import dataclass
+import hashlib
+from dataclasses import dataclass, asdict
 from typing import Optional, List, AsyncGenerator, Any
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
@@ -17,6 +23,7 @@ from ...tools.llm_provider import get_token_tracker
 from .graph import create_agent_graph
 from .state import AgentState
 from ..models import TokenUsage
+from ..cache import get_cache, QueryCache
 
 
 @dataclass
@@ -60,7 +67,9 @@ class AgentService:
     def __init__(
         self,
         graphrag_service,
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        enable_cache: bool = True,
+        cache_ttl: float = 300  # 5 minutes
     ):
         """
         AgentService 초기화
@@ -68,15 +77,21 @@ class AgentService:
         Args:
             graphrag_service: GraphRAGService 인스턴스
             model_name: Agent에서 사용할 LLM 모델 (기본값: 프로바이더별 환경변수)
+            enable_cache: 캐싱 활성화 여부
+            cache_ttl: 캐시 TTL (초)
         """
         self._graphrag_service = graphrag_service
         self._model_name = model_name
         self._graph = create_agent_graph(graphrag_service, model_name)
+        self._enable_cache = enable_cache
+        self._cache_ttl = cache_ttl
+        self._cache: QueryCache = get_cache() if enable_cache else None
 
     def query(
         self,
         query_text: str,
-        session_id: str = "default"
+        session_id: str = "default",
+        use_cache: bool = True
     ) -> AgentResult:
         """
         자연어 쿼리 실행 (동기 방식)
@@ -87,10 +102,18 @@ class AgentService:
         Args:
             query_text: 사용자 질문
             session_id: 세션 ID (기본값: "default")
+            use_cache: 캐시 사용 여부 (기본값: True)
 
         Returns:
             AgentResult 객체
         """
+        # 캐시 확인
+        if use_cache and self._cache:
+            cached = self._cache.get(query_text, session_id)
+            if cached is not None:
+                # 캐시 히트 - 저장된 결과 반환
+                return self._dict_to_result(cached)
+
         # 초기 상태 설정
         initial_state: AgentState = {
             "messages": [HumanMessage(content=query_text)],
@@ -113,6 +136,10 @@ class AgentService:
             total_cost=cb.total_cost
         )
 
+        # 캐시 저장
+        if use_cache and self._cache:
+            self._cache.set(query_text, session_id, self._result_to_dict(result), self._cache_ttl)
+
         # 대화 이력 저장 (Neo4j에 영속화)
         self._save_to_history(session_id, query_text, result.answer)
 
@@ -121,7 +148,8 @@ class AgentService:
     async def query_async(
         self,
         query_text: str,
-        session_id: str = "default"
+        session_id: str = "default",
+        use_cache: bool = True
     ) -> AgentResult:
         """
         자연어 쿼리 실행 (비동기 방식)
@@ -129,10 +157,17 @@ class AgentService:
         Args:
             query_text: 사용자 질문
             session_id: 세션 ID
+            use_cache: 캐시 사용 여부
 
         Returns:
             AgentResult 객체
         """
+        # 캐시 확인
+        if use_cache and self._cache:
+            cached = self._cache.get(query_text, session_id)
+            if cached is not None:
+                return self._dict_to_result(cached)
+
         # 초기 상태 설정
         initial_state: AgentState = {
             "messages": [HumanMessage(content=query_text)],
@@ -154,6 +189,10 @@ class AgentService:
             completion_tokens=cb.completion_tokens,
             total_cost=cb.total_cost
         )
+
+        # 캐시 저장
+        if use_cache and self._cache:
+            self._cache.set(query_text, session_id, self._result_to_dict(result), self._cache_ttl)
 
         # 대화 이력 저장 (Neo4j에 영속화)
         self._save_to_history(session_id, query_text, result.answer)
@@ -306,6 +345,49 @@ class AgentService:
             # 히스토리 저장 실패는 무시 (로깅만 수행)
             import logging
             logging.getLogger(__name__).warning(f"Failed to save history: {e}")
+
+    def _result_to_dict(self, result: AgentResult) -> dict:
+        """AgentResult를 캐시 저장용 dict로 변환"""
+        return {
+            "answer": result.answer,
+            "thoughts": result.thoughts,
+            "tool_calls": result.tool_calls,
+            "tool_results": result.tool_results,
+            "iterations": result.iterations,
+            "token_usage": {
+                "total_tokens": result.token_usage.total_tokens,
+                "prompt_tokens": result.token_usage.prompt_tokens,
+                "completion_tokens": result.token_usage.completion_tokens,
+                "total_cost": result.token_usage.total_cost
+            } if result.token_usage else None,
+            "cached": True  # 캐시된 결과임을 표시
+        }
+
+    def _dict_to_result(self, data: dict) -> AgentResult:
+        """캐시에서 가져온 dict를 AgentResult로 변환"""
+        token_usage = None
+        if data.get("token_usage"):
+            token_usage = TokenUsage(
+                total_tokens=data["token_usage"]["total_tokens"],
+                prompt_tokens=data["token_usage"]["prompt_tokens"],
+                completion_tokens=data["token_usage"]["completion_tokens"],
+                total_cost=data["token_usage"]["total_cost"]
+            )
+
+        return AgentResult(
+            answer=data["answer"],
+            thoughts=data["thoughts"],
+            tool_calls=data["tool_calls"],
+            tool_results=data["tool_results"],
+            iterations=data["iterations"],
+            token_usage=token_usage
+        )
+
+    def get_cache_stats(self) -> dict:
+        """캐시 통계 반환"""
+        if self._cache:
+            return self._cache.get_stats()
+        return {"enabled": False}
 
 
 # =============================================================================

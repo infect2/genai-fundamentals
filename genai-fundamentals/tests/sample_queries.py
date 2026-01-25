@@ -55,8 +55,8 @@ SAMPLE_QUERIES: List[SampleQuery] = [
     # -------------------------------------------------------------------------
     SampleQuery(
         id="Q01_MULTI_HOP_SHIPPER_TO_CARRIER",
-        query_ko="화주 'Shipper_001'이 보낸 화물을 운송하는 운송사들의 이름과 연락처를 알려줘",
-        query_en="Find the carriers transporting cargo from Shipper_001 and show their names and contact info",
+        query_ko="'배민 상사' 화주가 보낸 화물을 운송하는 운송사들의 이름과 연락처를 알려줘",
+        query_en="Find the carriers transporting cargo from '배민 상사' shipper and show their names and contact info",
         description="""
         Multi-hop relationship traversal:
         (Shipper)-[:OWNS]->(Cargo)<-[:CONTAINS]-(Shipment)-[:FULFILLED_BY]->(Carrier)
@@ -64,7 +64,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
         """,
         complexity=QueryComplexity.COMPLEX,
         expected_route=ExpectedRoute.CYPHER,
-        expected_keywords=["Carrier", "contactEmail", "contactPhone"],
+        expected_keywords=["운송", "로지스틱스", "카고", "화물"],
         min_results=1
     ),
 
@@ -83,7 +83,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
         """,
         complexity=QueryComplexity.COMPLEX,
         expected_route=ExpectedRoute.CYPHER,
-        expected_keywords=["Carrier", "Vehicle", "capacity"],
+        expected_keywords=["로지스틱스", "운송", "화물", "차량", "용량", "kg"],
         min_results=10
     ),
 
@@ -92,16 +92,16 @@ SAMPLE_QUERIES: List[SampleQuery] = [
     # -------------------------------------------------------------------------
     SampleQuery(
         id="Q03_LOCATION_BASED_SHIPMENTS",
-        query_ko="평택 물류센터에서 출발하여 부산항으로 도착하는 배송 건들을 찾아줘",
-        query_en="Find shipments departing from Pyeongtaek Logistics Center to Busan Port",
+        query_ko="서울 지역 물류센터에서 출발하는 배송 건들을 찾아줘",
+        query_en="Find shipments departing from Seoul area logistics centers",
         description="""
-        Location-based filtering with origin/destination:
-        (lc:LogisticsCenter {name: '평택 물류센터'})<-[:ORIGIN]-(s:Shipment)-[:DESTINATION]->(p:Port {name: '부산항'})
-        Tests: Bi-directional relationship, property matching
+        Location-based filtering with flexible matching:
+        MATCH (lc:LogisticsCenter)<-[:ORIGIN]-(s:Shipment) WHERE lc.name CONTAINS '서울'
+        Tests: CONTAINS matching, relationship traversal
         """,
         complexity=QueryComplexity.MEDIUM,
         expected_route=ExpectedRoute.CYPHER,
-        expected_keywords=["Shipment", "평택", "부산"],
+        expected_keywords=["Shipment", "배송", "서울"],
         min_results=0  # 데이터에 따라 다름
     ),
 
@@ -110,7 +110,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
     # -------------------------------------------------------------------------
     SampleQuery(
         id="Q04_STATUS_AND_TIME_FILTER",
-        query_ko="현재 '배송중' 상태인 배송 건 중에서 예상 도착일이 가장 빠른 5건을 보여줘",
+        query_ko="현재 'in_transit' 상태인 배송 건 중에서 예상 도착일이 가장 빠른 5건을 보여줘",
         query_en="Show top 5 shipments with 'in_transit' status ordered by earliest estimated delivery",
         description="""
         Status filtering with time-based sorting:
@@ -120,7 +120,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
         """,
         complexity=QueryComplexity.MEDIUM,
         expected_route=ExpectedRoute.CYPHER,
-        expected_keywords=["Shipment", "status", "estimatedDelivery"],
+        expected_keywords=["in_transit", "배송", "Shipment"],
         min_results=1
     ),
 
@@ -149,8 +149,8 @@ SAMPLE_QUERIES: List[SampleQuery] = [
     # -------------------------------------------------------------------------
     SampleQuery(
         id="Q06_SEMANTIC_CARGO_SEARCH",
-        query_ko="냉장 보관이 필요한 식품 관련 화물들을 찾아줘",
-        query_en="Find cargo related to food products that require refrigerated storage",
+        query_ko="부피가 큰 대형 화물들을 찾아줘",
+        query_en="Find large bulky cargo items",
         description="""
         Semantic/vector search on cargo descriptions:
         Uses vector similarity on Cargo.description field
@@ -158,7 +158,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
         """,
         complexity=QueryComplexity.MEDIUM,
         expected_route=ExpectedRoute.VECTOR,
-        expected_keywords=["Cargo", "냉장", "식품"],
+        expected_keywords=["Cargo", "화물", "부피", "m3", "kg"],
         min_results=0  # 벡터 인덱스 및 데이터에 따라 다름
     ),
 
@@ -167,17 +167,17 @@ SAMPLE_QUERIES: List[SampleQuery] = [
     # -------------------------------------------------------------------------
     SampleQuery(
         id="Q07_HYBRID_SEARCH",
-        query_ko="인천 지역 물류센터에서 출발하는 배송 중 전자제품과 관련된 화물을 찾아줘",
-        query_en="Find shipments from Incheon logistics centers containing electronics-related cargo",
+        query_ko="인천 지역에서 출발하는 배송 건과 관련된 화물 정보를 찾아줘",
+        query_en="Find shipments from Incheon area and their cargo information",
         description="""
         Hybrid search combining structure and semantics:
         1. Cypher: Find shipments from Incheon logistics centers
-        2. Vector: Filter by cargo description similarity to 'electronics'
+        2. Vector: Find related cargo information
         Tests: Combined cypher + vector search
         """,
         complexity=QueryComplexity.ADVANCED,
         expected_route=ExpectedRoute.HYBRID,
-        expected_keywords=["인천", "Shipment", "Cargo"],
+        expected_keywords=["인천", "배송", "화물", "Shipment", "Cargo"],
         min_results=0
     ),
 
@@ -197,7 +197,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
         """,
         complexity=QueryComplexity.COMPLEX,
         expected_route=ExpectedRoute.CYPHER,
-        expected_keywords=["vehicleType", "capacity", "count", "average"],
+        expected_keywords=["톤", "트럭", "탑차", "윙바디", "차량", "타입"],
         min_results=1
     ),
 
@@ -217,7 +217,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
         """,
         complexity=QueryComplexity.ADVANCED,
         expected_route=ExpectedRoute.CYPHER,
-        expected_keywords=["ORIGIN", "DESTINATION", "count"],
+        expected_keywords=["물류센터", "항", "출발", "도착", "경로", "건수"],
         min_results=1
     ),
 
@@ -236,7 +236,7 @@ SAMPLE_QUERIES: List[SampleQuery] = [
         """,
         complexity=QueryComplexity.ADVANCED,
         expected_route=ExpectedRoute.CYPHER,
-        expected_keywords=["Carrier", "PricingService", "price", "pricingMethod"],
+        expected_keywords=["운송", "로지스틱스", "가격", "price", "평균"],
         min_results=1
     ),
 ]

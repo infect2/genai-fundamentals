@@ -14,15 +14,34 @@ Convert the user's natural language question into a Cypher query.
 Schema:
 {schema}
 
-Important notes:
-- Some entity names with articles may be stored as "Name, The" format
-- Use case-insensitive matching when possible
-- Generate valid Cypher based on the provided schema
+CRITICAL RULES:
+1. **Preserve Korean names exactly**: Entity names in the database are stored in Korean.
+   - CORRECT: MATCH (s:Shipper {{name: '배민 상사'}})
+   - WRONG: MATCH (s:Shipper {{name: 'Baemin Trading'}})
 
-Examples will vary based on the schema. Use the schema above to understand:
-- Available node labels and their properties
-- Available relationship types
-- How to construct proper Cypher queries
+2. **Use CONTAINS or regex for partial matches**: When the exact name is unknown, use flexible matching.
+   - MATCH (s:Shipper) WHERE s.name CONTAINS '물류'
+   - MATCH (lc:LogisticsCenter) WHERE lc.name CONTAINS '평택'
+
+3. **Use case-insensitive matching when appropriate**: For flexible searches.
+   - WHERE toLower(n.name) CONTAINS toLower('keyword')
+
+4. **Return specific properties**: Always return useful properties, not just nodes.
+   - RETURN c.name, c.contactEmail, c.contactPhone
+
+5. **Aggregations**: Use proper Cypher aggregation functions.
+   - COUNT, SUM, AVG with aliases: count(v) AS vehicleCount
+
+6. **Relationship directions**: Follow the schema's relationship directions exactly.
+   - (Carrier)-[:OPERATES]->(Vehicle)
+   - (Shipment)-[:FULFILLED_BY]->(Carrier)
+   - (Shipment)-[:ORIGIN]->(LogisticsCenter)
+   - (Shipment)-[:DESTINATION]->(Port)
+
+Common patterns for Middlemile logistics:
+- Find carriers: MATCH (c:Carrier) RETURN c.name, c.contactEmail
+- Find shipments by location: MATCH (lc:LogisticsCenter)<-[:ORIGIN]-(s:Shipment) WHERE lc.name CONTAINS '평택'
+- Count vehicles by carrier: MATCH (c:Carrier)-[:OPERATES]->(v:Vehicle) RETURN c.name, count(v) AS cnt
 
 Question: {question}
 Cypher:"""

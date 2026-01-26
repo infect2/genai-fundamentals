@@ -629,6 +629,66 @@ pytest genai-fundamentals/tests/test_agent.py -v -k "integration"
 
 `MAX_ITERATIONS = 10`으로 설정되어 있어 최대 10번의 reasoning loop 후 강제 종료됩니다.
 
+### Multi-Turn Conversation (대화 컨텍스트 유지)
+
+Agent는 동일 세션 내에서 이전 대화 기록을 참조하여 연속적인 질의를 처리합니다.
+
+**지원되는 표현:**
+- "이전에", "앞서", "아까" (previous, earlier)
+- "그 다음", "다음 것" (next ones)
+- "나머지", "제외하고" (remaining, excluding)
+- "방금 말한", "위에서 언급한" (just mentioned, mentioned above)
+
+**사용 예시:**
+```bash
+# Turn 1: 첫 번째 쿼리
+curl -X POST "http://localhost:8000/agent/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "5명 shipper를 조회해", "session_id": "user123"}'
+# 응답: 이유진 무역 80, 배민 상사, 정미영 무역 61, 정준호 무역 75, 강준호 무역 83
+
+# Turn 2: 이전 결과 참조 쿼리
+curl -X POST "http://localhost:8000/agent/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "이전에 응답한 5명을 제외하고 다음 5명을 조회해", "session_id": "user123"}'
+# 응답: 포스코 상사, 박지훈 무역 49, 박서연 무역 74, 정지훈 무역 87, 최지훈 무역 94 (다른 5명!)
+
+# Turn 3: 컨텍스트 확인
+curl -X POST "http://localhost:8000/agent/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "지금까지 몇 명의 shipper를 조회했어?", "session_id": "user123"}'
+# 응답: 총 10명
+```
+
+**설정:**
+```python
+agent_service = AgentService(
+    graphrag_service,
+    history_window=10    # 최근 10개 턴의 대화 기록 유지 (기본값)
+)
+```
+
+**아키텍처:**
+```
+Turn 1 쿼리
+    ↓
+Agent 실행 → 응답 → 히스토리 저장 (HistoryCache + Neo4j)
+    ↓
+Turn 2 쿼리
+    ↓
+히스토리 로드 (최근 N턴) → Agent 컨텍스트에 주입 → Agent 실행
+    ↓
+이전 대화 참조하여 응답 생성
+```
+
+**주요 파일:**
+| 파일 | 역할 |
+|------|------|
+| `api/agent/service.py` | `_load_history_messages()`, `history_window` 설정 |
+| `api/agent/prompts.py` | Multi-Turn Context 처리 지침 |
+| `api/graphrag_service.py` | `get_history_messages()`, `_add_to_history()` |
+| `api/cache.py` | `HistoryCache` (메모리 캐시로 Neo4j 부하 감소) |
+
 ## Token Usage Tracking
 
 모든 쿼리 파이프라인(Router, RAG, Agent)에서 발생하는 LLM 토큰 사용량을 추적합니다.

@@ -14,6 +14,7 @@ from typing import Optional, List
 from ..models import QueryResult
 from ..router import RouteDecision
 from ..prompts import MEMORY_EXTRACT_TEMPLATE
+from ..neo4j_tx import Neo4jTransactionHelper
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,10 @@ def store_user_memory(
     timeout: Optional[float] = None
 ) -> None:
     """
-    사용자 정보를 Neo4j에 저장 (MERGE로 upsert, 타임아웃 적용)
+    사용자 정보를 Neo4j에 저장 (트랜잭션 격리, 타임아웃 적용)
+
+    Write Transaction을 사용하여 데이터 일관성을 보장합니다.
+    MERGE + SET이 원자적으로 실행되며, 실패 시 자동 롤백됩니다.
 
     Args:
         graph: Neo4jGraph 인스턴스
@@ -46,7 +50,8 @@ def store_user_memory(
     effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
 
     def _store():
-        graph.query(
+        tx_helper = Neo4jTransactionHelper(graph)
+        tx_helper.execute_write(
             f"""
             MERGE (m:`{_USER_MEMORY_NODE_LABEL}` {{session_id: $session_id, key: $key}})
             SET m.value = $value, m.updated_at = datetime()

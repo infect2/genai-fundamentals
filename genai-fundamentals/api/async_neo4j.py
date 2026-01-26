@@ -16,8 +16,8 @@ import logging
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
-from neo4j.exceptions import ServiceUnavailable, SessionExpired
+from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, AsyncManagedTransaction
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransactionError
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ class AsyncNeo4jDriver:
         database: Optional[str] = None
     ) -> None:
         """
-        쓰기 쿼리 실행 (비동기)
+        쓰기 쿼리 실행 (비동기, 단일 트랜잭션)
 
         Args:
             cypher: Cypher 쿼리문 (CREATE, MERGE, SET, DELETE 등)
@@ -181,8 +181,86 @@ class AsyncNeo4jDriver:
         """
         await self.ensure_connected()
 
+        async def _work(tx: AsyncManagedTransaction) -> None:
+            await tx.run(cypher, params or {})
+
         async with self.session(database) as session:
-            await session.run(cypher, params or {})
+            await session.execute_write(_work)
+
+    @asynccontextmanager
+    async def write_transaction(self, database: Optional[str] = None):
+        """
+        Write Transaction 컨텍스트 매니저 (명시적 트랜잭션 격리)
+
+        트랜잭션 내 모든 쓰기 작업이 원자적으로 실행됩니다.
+        컨텍스트 종료 시 자동 커밋, 예외 발생 시 자동 롤백.
+
+        Usage:
+            async with driver.write_transaction() as tx:
+                await tx.run("CREATE (n:User {name: $name})", {"name": "Alice"})
+                await tx.run("CREATE (n:Log {action: $action})", {"action": "created"})
+            # 트랜잭션 자동 커밋
+
+        Args:
+            database: 데이터베이스명 (기본: neo4j)
+
+        Yields:
+            AsyncManagedTransaction: 트랜잭션 객체
+        """
+        await self.ensure_connected()
+
+        async with self.session(database) as session:
+            tx = await session.begin_transaction()
+            try:
+                yield tx
+                await tx.commit()
+                logger.debug("Write transaction committed")
+            except Exception as e:
+                await tx.rollback()
+                logger.error(f"Write transaction rolled back due to: {e}")
+                raise
+
+    async def execute_batch_write(
+        self,
+        operations: List[Dict[str, Any]],
+        database: Optional[str] = None
+    ) -> None:
+        """
+        배치 쓰기 실행 (원자적 트랜잭션)
+
+        여러 쓰기 작업을 단일 트랜잭션으로 묶어 원자성을 보장합니다.
+        하나라도 실패하면 전체 롤백됩니다.
+
+        Args:
+            operations: 쓰기 작업 리스트
+                [
+                    {"cypher": "CREATE ...", "params": {...}},
+                    {"cypher": "MERGE ...", "params": {...}},
+                ]
+            database: 데이터베이스명
+
+        Raises:
+            TransactionError: 트랜잭션 실패 시
+        """
+        if not operations:
+            return
+
+        await self.ensure_connected()
+
+        async def _batch_work(tx: AsyncManagedTransaction) -> None:
+            for op in operations:
+                cypher = op.get("cypher")
+                params = op.get("params", {})
+                if cypher:
+                    await tx.run(cypher, params)
+
+        try:
+            async with self.session(database) as session:
+                await session.execute_write(_batch_work)
+            logger.debug(f"Batch write completed: {len(operations)} operations")
+        except Exception as e:
+            logger.error(f"Batch write failed: {e}")
+            raise TransactionError(f"Batch write failed: {e}") from e
 
     async def get_schema(self) -> str:
         """

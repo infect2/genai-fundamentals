@@ -41,6 +41,7 @@ from .prompts import (
 )
 from .router import QueryRouter, RouteType, RouteDecision
 from .cache import get_history_cache
+from .neo4j_tx import Neo4jTransactionHelper
 from . import pipelines
 
 
@@ -294,24 +295,63 @@ class GraphRAGService:
 
     def _add_to_history(self, session_id: str, user_message: str, ai_message: str) -> None:
         """
-        히스토리에 메시지 추가 (캐시 + Neo4j)
+        히스토리에 메시지 추가 (캐시 + Neo4j, 트랜잭션 격리)
+
+        캐시에 먼저 추가하고, Neo4j에는 트랜잭션 격리를 적용하여
+        두 메시지가 원자적으로 저장됩니다.
+        Neo4j 실패 시 캐시는 유지되며, 다음 읽기에서 캐시가 우선합니다.
 
         Args:
             session_id: 세션 ID
             user_message: 사용자 메시지
             ai_message: AI 응답
         """
-        # 1. 캐시에 추가 (즉시)
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 1. 캐시에 추가 (즉시, 실패 없음)
         self._history_cache.add_message(session_id, "human", user_message)
         self._history_cache.add_message(session_id, "ai", ai_message)
 
-        # 2. Neo4j에 저장 (동기화)
-        history = self._get_neo4j_history(session_id)
-        history.add_user_message(user_message)
-        history.add_ai_message(ai_message)
-
-        # 3. 캐시 동기화 완료 표시
-        self._history_cache.mark_synced(session_id)
+        # 2. Neo4j에 원자적으로 저장 (트랜잭션 격리)
+        # LangChain 호환성을 위해 Neo4jChatMessageHistory의 스키마 사용
+        try:
+            tx_helper = Neo4jTransactionHelper(self._graph)
+            with tx_helper.write_transaction() as tx:
+                # 세션 생성/업데이트
+                tx.run(
+                    f"MERGE (s:`{self._CHAT_SESSION_NODE_LABEL}` {{id: $session_id}})",
+                    {"session_id": session_id}
+                )
+                # 사용자 메시지 추가
+                tx.run(
+                    f"""
+                    MATCH (s:`{self._CHAT_SESSION_NODE_LABEL}` {{id: $session_id}})
+                    CREATE (s)-[:LAST_MESSAGE]->(m:Message {{
+                        type: 'human',
+                        content: $content
+                    }})
+                    """,
+                    {"session_id": session_id, "content": user_message}
+                )
+                # AI 메시지 추가
+                tx.run(
+                    f"""
+                    MATCH (s:`{self._CHAT_SESSION_NODE_LABEL}` {{id: $session_id}})
+                    CREATE (s)-[:LAST_MESSAGE]->(m:Message {{
+                        type: 'ai',
+                        content: $content
+                    }})
+                    """,
+                    {"session_id": session_id, "content": ai_message}
+                )
+            # 3. 트랜잭션 성공 시 캐시 동기화 완료 표시
+            self._history_cache.mark_synced(session_id)
+            logger.debug(f"History saved atomically for session {session_id}")
+        except Exception as e:
+            # Neo4j 쓰기 실패 - 캐시는 유지, 경고 로그
+            # 캐시 데이터가 우선하므로 서비스는 계속 동작
+            logger.warning(f"Failed to save history to Neo4j for session {session_id}: {e}")
 
     def get_schema(self) -> str:
         """

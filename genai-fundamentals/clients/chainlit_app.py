@@ -631,13 +631,19 @@ async def on_message(message: cl.Message):
     for tr in tool_results:
         result_text = tr.get("result", "")
         if "Cypher Query:" in result_text:
-            # "Cypher Query: MATCH..." 부분 추출
-            lines = result_text.split("\n")
-            for line in lines:
-                if line.startswith("Cypher Query:"):
-                    cypher = line.replace("Cypher Query:", "").strip()
-                    if cypher:
-                        cypher_queries.append(cypher)
+            # "Cypher Query: cypher\nMATCH..." 형식에서 쿼리 추출
+            # Cypher Query: 이후의 모든 내용을 추출
+            parts = result_text.split("Cypher Query:")
+            if len(parts) > 1:
+                cypher_part = parts[1].strip()
+                # "cypher" 언어 식별자 제거 (첫 줄이 "cypher"인 경우)
+                lines = cypher_part.split("\n")
+                if lines and lines[0].strip().lower() == "cypher":
+                    cypher = "\n".join(lines[1:]).strip()
+                else:
+                    cypher = cypher_part
+                if cypher:
+                    cypher_queries.append(cypher)
 
     # Agent 메타데이터가 있는 경우 상세 정보 표시
     if thoughts or tool_calls or token_usage or cypher_queries:

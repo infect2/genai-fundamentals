@@ -4,17 +4,13 @@ Cypher RAG 파이프라인 (Text-to-Cypher)
 특정 엔티티나 관계를 조회하는 쿼리를 Cypher로 변환하여 실행합니다.
 """
 
-import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Optional
 
 from ..models import QueryResult
 from ..router import RouteDecision
+from ..config import get_config
 from .utils import extract_intermediate_steps
-
-
-# 기본 쿼리 타임아웃 (초)
-DEFAULT_QUERY_TIMEOUT = float(os.getenv("NEO4J_QUERY_TIMEOUT", "30"))
 
 
 def execute(
@@ -38,7 +34,7 @@ def execute(
     Raises:
         TimeoutError: 쿼리가 타임아웃 시간을 초과한 경우
     """
-    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else get_config().neo4j.query_timeout
 
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:

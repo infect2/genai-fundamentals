@@ -42,6 +42,7 @@ from .prompts import (
 from .router import QueryRouter, RouteType, RouteDecision
 from .cache import get_history_cache
 from .neo4j_tx import Neo4jTransactionHelper
+from .config import get_config
 from . import pipelines
 
 
@@ -92,19 +93,16 @@ class GraphRAGService:
             temperature: LLM temperature (기본값: 0, 결정론적 출력)
             enable_routing: Query Router 활성화 여부 (기본값: True)
         """
-        self._neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI")
-        self._neo4j_username = neo4j_username or os.getenv("NEO4J_USERNAME")
-        self._neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD")
+        # Config에서 Neo4j 설정 로드
+        config = get_config()
+        self._neo4j_uri = neo4j_uri or config.neo4j.uri
+        self._neo4j_username = neo4j_username or config.neo4j.username
+        self._neo4j_password = neo4j_password or config.neo4j.password
         self._enable_routing = enable_routing
 
-        # Neo4j Driver 설정 (동시 처리 최적화)
-        self._driver_config = {
-            "max_connection_pool_size": int(os.getenv("NEO4J_MAX_POOL_SIZE", "100")),
-            "connection_acquisition_timeout": float(os.getenv("NEO4J_CONNECTION_ACQUISITION_TIMEOUT", "60")),
-            "connection_timeout": float(os.getenv("NEO4J_CONNECTION_TIMEOUT", "30")),
-            "max_connection_lifetime": int(os.getenv("NEO4J_MAX_CONNECTION_LIFETIME", "3600")),
-        }
-        self._query_timeout = float(os.getenv("NEO4J_QUERY_TIMEOUT", "30"))
+        # Neo4j Driver 설정 (config에서 가져옴)
+        self._driver_config = config.neo4j.driver_config
+        self._query_timeout = config.neo4j.query_timeout
 
         # Neo4j 연결 설정 (커넥션 풀 최적화 적용)
         self._graph = Neo4jGraph(

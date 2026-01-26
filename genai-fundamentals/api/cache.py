@@ -15,7 +15,6 @@ Features:
 """
 
 import hashlib
-import os
 import time
 import threading
 import asyncio
@@ -28,6 +27,12 @@ from concurrent.futures import Future
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _get_cache_config():
+    """Lazy import to avoid circular dependency"""
+    from .config import get_config
+    return get_config().cache
 
 
 @dataclass
@@ -629,9 +634,11 @@ class HistoryCache:
             max_messages_per_session: 세션당 최대 메시지 수
         """
         self._cache: OrderedDict[str, HistoryEntry] = OrderedDict()
-        self._max_sessions = max_sessions
-        self._ttl = float(os.getenv("HISTORY_CACHE_TTL", str(ttl)))
-        self._max_messages = int(os.getenv("HISTORY_CACHE_MAX_MESSAGES", str(max_messages_per_session)))
+        # Config에서 설정 로드 (파라미터 우선)
+        config = _get_cache_config()
+        self._max_sessions = config.history_cache_max_sessions if max_sessions == 500 else max_sessions
+        self._ttl = config.history_cache_ttl if ttl == 1800 else ttl
+        self._max_messages = config.history_cache_max_messages if max_messages_per_session == 100 else max_messages_per_session
         self._lock = threading.RLock()
         self._stats = {
             "hits": 0,

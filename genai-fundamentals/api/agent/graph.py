@@ -16,13 +16,10 @@ from ...tools.llm_provider import create_langchain_llm
 from .state import AgentState
 from .prompts import REACT_SYSTEM_PROMPT
 from .tools import create_agent_tools
+from ..config import get_config
 
 if TYPE_CHECKING:
     from ..graphrag_service import GraphRAGService
-
-
-# 최대 반복 횟수 (무한 루프 방지)
-MAX_ITERATIONS = 10
 
 
 def create_agent_graph(service: "GraphRAGService", model_name: str = None):
@@ -61,7 +58,8 @@ def create_agent_graph(service: "GraphRAGService", model_name: str = None):
             messages = [SystemMessage(content=REACT_SYSTEM_PROMPT)] + messages
 
         # 최대 반복 횟수 초과 시 강제 종료
-        if iteration >= MAX_ITERATIONS:
+        config = get_config()
+        if iteration >= config.agent.max_iterations:
             return {
                 "messages": [AIMessage(content="I've reached the maximum number of reasoning steps. Based on the information gathered, here's my best answer: I apologize, but I couldn't complete the full analysis within the allowed steps.")],
                 "iteration": iteration + 1,

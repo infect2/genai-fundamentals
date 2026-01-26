@@ -193,12 +193,13 @@ class TestAgentServiceMock:
 class TestAgentGraphMock:
     """Agent Graph Mock 테스트"""
 
-    def test_max_iterations_constant(self):
-        """MAX_ITERATIONS 상수 확인"""
-        _graph_mod = importlib.import_module("genai-fundamentals.api.agent.graph")
-        MAX_ITERATIONS = _graph_mod.MAX_ITERATIONS
+    def test_max_iterations_config(self):
+        """MAX_ITERATIONS 설정 확인 (config 모듈)"""
+        _config_mod = importlib.import_module("genai-fundamentals.api.config")
+        config = _config_mod.get_config()
 
-        assert MAX_ITERATIONS == 10
+        # 기본값 확인 (환경변수 미설정 시)
+        assert config.agent.max_iterations == 10
 
     def test_create_agent_graph(self):
         """create_agent_graph 함수 테스트"""

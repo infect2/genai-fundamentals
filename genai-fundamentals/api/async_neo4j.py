@@ -11,13 +11,14 @@ Features:
 - Async transaction support
 """
 
-import os
 import logging
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
 from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, AsyncManagedTransaction
 from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransactionError
+
+from .config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -63,19 +64,22 @@ class AsyncNeo4jDriver:
             connection_timeout: 커넥션 타임아웃(초)
             max_connection_lifetime: 커넥션 최대 수명(초)
         """
-        self._uri = uri or os.getenv("NEO4J_URI")
-        self._username = username or os.getenv("NEO4J_USERNAME")
-        self._password = password or os.getenv("NEO4J_PASSWORD")
+        # Config에서 Neo4j 설정 로드
+        config = get_config()
+        self._uri = uri or config.neo4j.uri
+        self._username = username or config.neo4j.username
+        self._password = password or config.neo4j.password
 
+        # 드라이버 설정 (파라미터 우선, 없으면 config 사용)
         self._driver_config = {
-            "max_connection_pool_size": int(os.getenv("NEO4J_MAX_POOL_SIZE", str(max_connection_pool_size))),
-            "connection_acquisition_timeout": float(os.getenv("NEO4J_CONNECTION_ACQUISITION_TIMEOUT", str(connection_acquisition_timeout))),
-            "connection_timeout": float(os.getenv("NEO4J_CONNECTION_TIMEOUT", str(connection_timeout))),
-            "max_connection_lifetime": int(os.getenv("NEO4J_MAX_CONNECTION_LIFETIME", str(max_connection_lifetime))),
+            "max_connection_pool_size": max_connection_pool_size if max_connection_pool_size != 100 else config.neo4j.max_pool_size,
+            "connection_acquisition_timeout": connection_acquisition_timeout if connection_acquisition_timeout != 60.0 else config.neo4j.connection_acquisition_timeout,
+            "connection_timeout": connection_timeout if connection_timeout != 30.0 else config.neo4j.connection_timeout,
+            "max_connection_lifetime": max_connection_lifetime if max_connection_lifetime != 3600 else config.neo4j.max_connection_lifetime,
         }
 
         self._driver: Optional[AsyncDriver] = None
-        self._database = os.getenv("NEO4J_DATABASE", "neo4j")
+        self._database = config.neo4j.database
 
     async def connect(self) -> None:
         """드라이버 연결"""

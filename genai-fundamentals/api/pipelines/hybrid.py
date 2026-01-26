@@ -4,17 +4,13 @@ Hybrid RAG 파이프라인 (Vector + Cypher)
 시맨틱 검색과 구조화된 데이터 조회를 결합하여 복합 쿼리를 처리합니다.
 """
 
-import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Optional
 
 from ..models import QueryResult
 from ..router import RouteDecision
+from ..config import get_config
 from .utils import extract_intermediate_steps
-
-
-# 기본 쿼리 타임아웃 (초)
-DEFAULT_QUERY_TIMEOUT = float(os.getenv("NEO4J_QUERY_TIMEOUT", "30"))
 
 
 def execute(
@@ -44,7 +40,7 @@ def execute(
     Raises:
         TimeoutError: 검색, Cypher 또는 LLM 응답이 타임아웃 시간을 초과한 경우
     """
-    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else get_config().neo4j.query_timeout
 
     # 1. Vector 검색 (타임아웃 적용)
     try:

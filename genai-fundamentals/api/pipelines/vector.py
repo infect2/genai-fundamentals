@@ -4,16 +4,12 @@ Vector RAG 파이프라인 (시맨틱 검색)
 내용, 설명, 테마 기반으로 유사한 엔티티를 검색합니다.
 """
 
-import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Optional
 
 from ..models import QueryResult
 from ..router import RouteDecision
-
-
-# 기본 쿼리 타임아웃 (초)
-DEFAULT_QUERY_TIMEOUT = float(os.getenv("NEO4J_QUERY_TIMEOUT", "30"))
+from ..config import get_config
 
 
 def execute(
@@ -41,7 +37,7 @@ def execute(
     Raises:
         TimeoutError: 검색 또는 LLM 응답이 타임아웃 시간을 초과한 경우
     """
-    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else get_config().neo4j.query_timeout
 
     # Vector Store에서 유사 문서 검색 (타임아웃 적용)
     try:

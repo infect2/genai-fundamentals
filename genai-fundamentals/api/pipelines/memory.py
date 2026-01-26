@@ -7,7 +7,6 @@ Neo4j UserMemory 노드에 세션별로 key-value 형태로 저장됩니다.
 
 import json
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Optional, List
 
@@ -15,13 +14,11 @@ from ..models import QueryResult
 from ..router import RouteDecision
 from ..prompts import MEMORY_EXTRACT_TEMPLATE
 from ..neo4j_tx import Neo4jTransactionHelper
+from ..config import get_config
 
 logger = logging.getLogger(__name__)
 
 _USER_MEMORY_NODE_LABEL = "UserMemory"
-
-# 기본 쿼리 타임아웃 (초)
-DEFAULT_QUERY_TIMEOUT = float(os.getenv("NEO4J_QUERY_TIMEOUT", "30"))
 
 
 def store_user_memory(
@@ -47,7 +44,7 @@ def store_user_memory(
     Raises:
         TimeoutError: 저장이 타임아웃 시간을 초과한 경우
     """
-    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else get_config().neo4j.query_timeout
 
     def _store():
         tx_helper = Neo4jTransactionHelper(graph)
@@ -88,7 +85,7 @@ def get_user_memory(
     Raises:
         TimeoutError: 조회가 타임아웃 시간을 초과한 경우
     """
-    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else get_config().neo4j.query_timeout
 
     def _get():
         return graph.query(
@@ -128,7 +125,7 @@ def get_all_user_memories(
     Raises:
         TimeoutError: 조회가 타임아웃 시간을 초과한 경우
     """
-    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else get_config().neo4j.query_timeout
 
     def _get_all():
         return graph.query(
@@ -178,7 +175,7 @@ def execute(
     Raises:
         TimeoutError: LLM 또는 DB 작업이 타임아웃 시간을 초과한 경우
     """
-    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+    effective_timeout = timeout if timeout is not None else get_config().neo4j.query_timeout
 
     # LLM으로 메모리 액션 추출 (타임아웃 적용)
     try:

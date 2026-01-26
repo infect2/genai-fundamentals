@@ -69,13 +69,17 @@ class AgentService:
         print(result.answer)
     """
 
+    # Multi-turn 대화 컨텍스트 설정
+    DEFAULT_HISTORY_WINDOW = 10  # 기본 히스토리 윈도우 (최근 N개 턴)
+
     def __init__(
         self,
         graphrag_service,
         model_name: Optional[str] = None,
         enable_cache: bool = True,
         cache_ttl: float = 300,  # 5 minutes
-        max_concurrent_llm: int = 10  # 최대 동시 LLM 호출 수
+        max_concurrent_llm: int = 10,  # 최대 동시 LLM 호출 수
+        history_window: int = DEFAULT_HISTORY_WINDOW  # 대화 히스토리 윈도우
     ):
         """
         AgentService 초기화
@@ -86,6 +90,7 @@ class AgentService:
             enable_cache: 캐싱 활성화 여부
             cache_ttl: 캐시 TTL (초)
             max_concurrent_llm: 최대 동시 LLM API 호출 수 (기본: 10)
+            history_window: 대화 히스토리 윈도우 크기 (기본: 10턴)
         """
         self._graphrag_service = graphrag_service
         self._model_name = model_name
@@ -93,10 +98,48 @@ class AgentService:
         self._enable_cache = enable_cache
         self._cache_ttl = cache_ttl
         self._cache: QueryCache = get_cache() if enable_cache else None
+        self._history_window = history_window
 
         # 동시성 최적화
         self._coalescer = get_coalescer()
         self._semaphore = get_llm_semaphore(max_concurrent_llm)
+
+    def _load_history_messages(self, session_id: str) -> List[Any]:
+        """
+        세션의 대화 히스토리를 LangChain 메시지로 변환
+
+        Multi-turn 대화 지원을 위해 이전 대화 기록을 로드하여
+        Agent 컨텍스트에 주입할 수 있도록 LangChain 메시지 형태로 변환합니다.
+
+        Args:
+            session_id: 세션 ID
+
+        Returns:
+            LangChain 메시지 리스트 [HumanMessage, AIMessage, ...]
+        """
+        try:
+            # GraphRAGService에서 히스토리 로드
+            history_dicts = self._graphrag_service.get_history_messages(session_id)
+
+            # 히스토리 윈도우 적용 (최근 N개 턴만, 각 턴은 human+ai 2개 메시지)
+            max_messages = self._history_window * 2
+            if len(history_dicts) > max_messages:
+                history_dicts = history_dicts[-max_messages:]
+
+            # dict를 LangChain 메시지로 변환
+            messages = []
+            for msg in history_dicts:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "human":
+                    messages.append(HumanMessage(content=content))
+                elif role == "ai":
+                    messages.append(AIMessage(content=content))
+
+            return messages
+        except Exception as e:
+            logger.warning(f"Failed to load history for session {session_id}: {e}")
+            return []
 
     def query(
         self,
@@ -125,9 +168,12 @@ class AgentService:
                 # 캐시 히트 - 저장된 결과 반환
                 return self._dict_to_result(cached)
 
-        # 초기 상태 설정
+        # Multi-turn 대화 지원: 이전 대화 히스토리 로드
+        history_messages = self._load_history_messages(session_id)
+
+        # 초기 상태 설정 (히스토리 + 현재 쿼리)
         initial_state: AgentState = {
-            "messages": [HumanMessage(content=query_text)],
+            "messages": history_messages + [HumanMessage(content=query_text)],
             "session_id": session_id,
             "tool_results": [],
             "iteration": 0,
@@ -188,15 +234,18 @@ class AgentService:
         # 2. 쿼리 키 생성 (coalescing용)
         query_key = self._make_query_key(query_text, session_id)
 
-        # 3. Request Coalescing + Semaphore를 사용한 실행
+        # 3. Multi-turn 대화 지원: 이전 대화 히스토리 로드 (Coalescing 전)
+        history_messages = self._load_history_messages(session_id)
+
+        # 4. Request Coalescing + Semaphore를 사용한 실행
         async def execute_query():
             # Semaphore로 동시 LLM 호출 제한
             async with await self._semaphore.acquire():
                 logger.debug(f"Executing query with semaphore: {query_text[:50]}...")
 
-                # 초기 상태 설정
+                # 초기 상태 설정 (히스토리 + 현재 쿼리)
                 initial_state: AgentState = {
-                    "messages": [HumanMessage(content=query_text)],
+                    "messages": history_messages + [HumanMessage(content=query_text)],
                     "session_id": session_id,
                     "tool_results": [],
                     "iteration": 0,
@@ -258,9 +307,12 @@ class AgentService:
         Yields:
             SSE 형식 문자열
         """
-        # 초기 상태 설정
+        # Multi-turn 대화 지원: 이전 대화 히스토리 로드
+        history_messages = self._load_history_messages(session_id)
+
+        # 초기 상태 설정 (히스토리 + 현재 쿼리)
         initial_state: AgentState = {
-            "messages": [HumanMessage(content=query_text)],
+            "messages": history_messages + [HumanMessage(content=query_text)],
             "session_id": session_id,
             "tool_results": [],
             "iteration": 0,
@@ -367,7 +419,10 @@ class AgentService:
 
     def _save_to_history(self, session_id: str, query_text: str, answer: str) -> None:
         """
-        대화 이력을 Neo4j에 저장합니다.
+        대화 이력을 HistoryCache와 Neo4j에 저장합니다.
+
+        _add_to_history 메서드를 사용하여 캐시와 Neo4j 모두에 저장합니다.
+        이를 통해 multi-turn 대화에서 이전 히스토리 로드 시 캐시를 활용할 수 있습니다.
 
         Args:
             session_id: 세션 ID
@@ -375,13 +430,11 @@ class AgentService:
             answer: Agent 응답
         """
         try:
-            history = self._graphrag_service.get_or_create_history(session_id)
-            history.add_user_message(query_text)
-            history.add_ai_message(answer)
+            # GraphRAGService._add_to_history 사용 (캐시 + Neo4j 동시 저장)
+            self._graphrag_service._add_to_history(session_id, query_text, answer)
         except Exception as e:
             # 히스토리 저장 실패는 무시 (로깅만 수행)
-            import logging
-            logging.getLogger(__name__).warning(f"Failed to save history: {e}")
+            logger.warning(f"Failed to save history for session {session_id}: {e}")
 
     def _result_to_dict(self, result: AgentResult) -> dict:
         """AgentResult를 캐시 저장용 dict로 변환"""

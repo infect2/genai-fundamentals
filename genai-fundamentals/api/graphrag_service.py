@@ -95,11 +95,22 @@ class GraphRAGService:
         self._neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD")
         self._enable_routing = enable_routing
 
-        # Neo4j 연결 설정
+        # Neo4j Driver 설정 (동시 처리 최적화)
+        self._driver_config = {
+            "max_connection_pool_size": int(os.getenv("NEO4J_MAX_POOL_SIZE", "100")),
+            "connection_acquisition_timeout": float(os.getenv("NEO4J_CONNECTION_ACQUISITION_TIMEOUT", "60")),
+            "connection_timeout": float(os.getenv("NEO4J_CONNECTION_TIMEOUT", "30")),
+            "max_connection_lifetime": int(os.getenv("NEO4J_MAX_CONNECTION_LIFETIME", "3600")),
+        }
+        self._query_timeout = float(os.getenv("NEO4J_QUERY_TIMEOUT", "30"))
+
+        # Neo4j 연결 설정 (커넥션 풀 최적화 적용)
         self._graph = Neo4jGraph(
             url=self._neo4j_uri,
             username=self._neo4j_username,
-            password=self._neo4j_password
+            password=self._neo4j_password,
+            timeout=self._query_timeout,
+            driver_config=self._driver_config
         )
 
         # 프롬프트 템플릿 생성
@@ -167,9 +178,10 @@ class GraphRAGService:
 
 
     def _get_vector_store(self) -> Neo4jVector:
-        """Vector Store lazy initialization"""
+        """Vector Store lazy initialization (기존 driver 설정 재사용)"""
         if self._vector_store is None:
             check_embedding_dimension_compatibility()
+            # 기존 graph의 driver 설정 재사용하여 커넥션 풀 통합
             self._vector_store = Neo4jVector.from_existing_index(
                 embedding=self._embeddings,
                 url=self._neo4j_uri,
@@ -177,6 +189,7 @@ class GraphRAGService:
                 password=self._neo4j_password,
                 index_name="moviePlots",
                 text_node_property="plot",
+                driver_config=self._driver_config,
             )
         return self._vector_store
 

@@ -7,77 +7,141 @@ Neo4j UserMemory 노드에 세션별로 key-value 형태로 저장됩니다.
 
 import json
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Optional, List
 
 from ..models import QueryResult
-
-logger = logging.getLogger(__name__)
 from ..router import RouteDecision
 from ..prompts import MEMORY_EXTRACT_TEMPLATE
 
+logger = logging.getLogger(__name__)
+
 _USER_MEMORY_NODE_LABEL = "UserMemory"
 
+# 기본 쿼리 타임아웃 (초)
+DEFAULT_QUERY_TIMEOUT = float(os.getenv("NEO4J_QUERY_TIMEOUT", "30"))
 
-def store_user_memory(graph, session_id: str, key: str, value: str) -> None:
+
+def store_user_memory(
+    graph,
+    session_id: str,
+    key: str,
+    value: str,
+    timeout: Optional[float] = None
+) -> None:
     """
-    사용자 정보를 Neo4j에 저장 (MERGE로 upsert)
+    사용자 정보를 Neo4j에 저장 (MERGE로 upsert, 타임아웃 적용)
 
     Args:
         graph: Neo4jGraph 인스턴스
         session_id: 세션 식별자
         key: 정보 종류 (예: 차번호, 이메일)
         value: 저장할 값
+        timeout: 쿼리 타임아웃(초)
+
+    Raises:
+        TimeoutError: 저장이 타임아웃 시간을 초과한 경우
     """
-    graph.query(
-        f"""
-        MERGE (m:`{_USER_MEMORY_NODE_LABEL}` {{session_id: $session_id, key: $key}})
-        SET m.value = $value, m.updated_at = datetime()
-        """,
-        params={"session_id": session_id, "key": key, "value": value}
-    )
+    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+
+    def _store():
+        graph.query(
+            f"""
+            MERGE (m:`{_USER_MEMORY_NODE_LABEL}` {{session_id: $session_id, key: $key}})
+            SET m.value = $value, m.updated_at = datetime()
+            """,
+            params={"session_id": session_id, "key": key, "value": value}
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_store)
+            future.result(timeout=effective_timeout)
+    except FuturesTimeoutError:
+        raise TimeoutError(f"Memory store timed out after {effective_timeout}s")
 
 
-def get_user_memory(graph, session_id: str, key: str) -> Optional[str]:
+def get_user_memory(
+    graph,
+    session_id: str,
+    key: str,
+    timeout: Optional[float] = None
+) -> Optional[str]:
     """
-    저장된 사용자 정보 조회
+    저장된 사용자 정보 조회 (타임아웃 적용)
 
     Args:
         graph: Neo4jGraph 인스턴스
         session_id: 세션 식별자
         key: 정보 종류
+        timeout: 쿼리 타임아웃(초)
 
     Returns:
         저장된 값 또는 None
+
+    Raises:
+        TimeoutError: 조회가 타임아웃 시간을 초과한 경우
     """
-    result = graph.query(
-        f"""
-        MATCH (m:`{_USER_MEMORY_NODE_LABEL}` {{session_id: $session_id, key: $key}})
-        RETURN m.value AS value
-        """,
-        params={"session_id": session_id, "key": key}
-    )
+    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+
+    def _get():
+        return graph.query(
+            f"""
+            MATCH (m:`{_USER_MEMORY_NODE_LABEL}` {{session_id: $session_id, key: $key}})
+            RETURN m.value AS value
+            """,
+            params={"session_id": session_id, "key": key}
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_get)
+            result = future.result(timeout=effective_timeout)
+    except FuturesTimeoutError:
+        raise TimeoutError(f"Memory get timed out after {effective_timeout}s")
+
     return result[0]["value"] if result else None
 
 
-def get_all_user_memories(graph, session_id: str) -> List[dict]:
+def get_all_user_memories(
+    graph,
+    session_id: str,
+    timeout: Optional[float] = None
+) -> List[dict]:
     """
-    세션의 모든 저장된 정보 조회
+    세션의 모든 저장된 정보 조회 (타임아웃 적용)
 
     Args:
         graph: Neo4jGraph 인스턴스
         session_id: 세션 식별자
+        timeout: 쿼리 타임아웃(초)
 
     Returns:
         [{"key": "...", "value": "..."}, ...] 형태의 리스트
+
+    Raises:
+        TimeoutError: 조회가 타임아웃 시간을 초과한 경우
     """
-    result = graph.query(
-        f"""
-        MATCH (m:`{_USER_MEMORY_NODE_LABEL}` {{session_id: $session_id}})
-        RETURN m.key AS key, m.value AS value
-        ORDER BY m.key
-        """,
-        params={"session_id": session_id}
-    )
+    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+
+    def _get_all():
+        return graph.query(
+            f"""
+            MATCH (m:`{_USER_MEMORY_NODE_LABEL}` {{session_id: $session_id}})
+            RETURN m.key AS key, m.value AS value
+            ORDER BY m.key
+            """,
+            params={"session_id": session_id}
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_get_all)
+            result = future.result(timeout=effective_timeout)
+    except FuturesTimeoutError:
+        raise TimeoutError(f"Memory get all timed out after {effective_timeout}s")
+
     return [{"key": r["key"], "value": r["value"]} for r in result]
 
 
@@ -86,10 +150,11 @@ def execute(
     session_id: str,
     llm,
     graph,
-    route_decision: RouteDecision
+    route_decision: RouteDecision,
+    timeout: Optional[float] = None
 ) -> QueryResult:
     """
-    MEMORY 라우트 실행 (사용자 정보 저장/조회)
+    MEMORY 라우트 실행 (사용자 정보 저장/조회, 타임아웃 적용)
 
     LLM으로 사용자 메시지에서 action/key/value를 추출한 후
     store면 Neo4j에 저장, recall이면 조회하여 응답합니다.
@@ -100,13 +165,27 @@ def execute(
         llm: ChatOpenAI 인스턴스
         graph: Neo4jGraph 인스턴스
         route_decision: 라우팅 결정 정보
+        timeout: 쿼리 타임아웃(초), None이면 기본값 사용
 
     Returns:
         QueryResult 객체
+
+    Raises:
+        TimeoutError: LLM 또는 DB 작업이 타임아웃 시간을 초과한 경우
     """
-    extract_result = llm.invoke(
-        MEMORY_EXTRACT_TEMPLATE.format(message=query_text)
-    )
+    effective_timeout = timeout if timeout is not None else DEFAULT_QUERY_TIMEOUT
+
+    # LLM으로 메모리 액션 추출 (타임아웃 적용)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                llm.invoke,
+                MEMORY_EXTRACT_TEMPLATE.format(message=query_text)
+            )
+            extract_result = future.result(timeout=effective_timeout)
+    except FuturesTimeoutError:
+        raise TimeoutError(f"Memory extraction timed out after {effective_timeout}s")
+
     # LLM이 markdown 코드블록으로 감싸는 경우 처리
     content = extract_result.content.strip()
     if content.startswith("```"):
@@ -131,10 +210,10 @@ def execute(
     value = parsed.get("value", "")
 
     if action == "store" and key and value:
-        store_user_memory(graph, session_id, key, value)
+        store_user_memory(graph, session_id, key, value, timeout=effective_timeout)
         answer = f"'{key}' 정보를 기억했습니다: {value}"
     else:
-        stored_value = get_user_memory(graph, session_id, key)
+        stored_value = get_user_memory(graph, session_id, key, timeout=effective_timeout)
         if stored_value:
             answer = f"{key}은(는) {stored_value}입니다."
         else:

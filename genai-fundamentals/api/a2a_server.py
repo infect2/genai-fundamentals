@@ -112,7 +112,10 @@ class CaporaAgentExecutor(AgentExecutor):
             return
 
         try:
-            session_id = context.context_id or "a2a-default"
+            # Multi-turn 지원: context_id가 없으면 새로 생성하여 세션 유지
+            # 클라이언트는 응답의 contextId를 다음 요청에 포함해야 함
+            effective_context_id = context.context_id or f"a2a-session-{uuid.uuid4().hex[:8]}"
+            session_id = effective_context_id
 
             agent = self._get_agent_service()
             result = await agent.query_async(
@@ -124,6 +127,7 @@ class CaporaAgentExecutor(AgentExecutor):
                 "thoughts": result.thoughts,
                 "tool_calls": result.tool_calls,
                 "iterations": result.iterations,
+                "session_id": session_id,  # 클라이언트가 다음 요청에 사용할 수 있도록
             }
             if result.token_usage:
                 data["token_usage"] = {
@@ -137,10 +141,10 @@ class CaporaAgentExecutor(AgentExecutor):
                 Part(root=DataPart(data=data)),
             ]
 
-            # 응답 메시지 전송
+            # 응답 메시지 전송 - effective_context_id 사용하여 세션 추적
             response = new_agent_parts_message(
                 parts=parts,
-                context_id=context.context_id,
+                context_id=effective_context_id,
                 task_id=context.task_id,
             )
             await event_queue.enqueue_event(response)
@@ -149,7 +153,7 @@ class CaporaAgentExecutor(AgentExecutor):
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
-                    context_id=context.context_id or "",
+                    context_id=effective_context_id,
                     final=True,
                     status=TaskStatus(state=TaskState.completed),
                 )

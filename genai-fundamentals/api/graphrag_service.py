@@ -241,9 +241,20 @@ class GraphRAGService:
         # 캐시 삭제
         cache_had_data = self._history_cache.clear_session(session_id)
 
-        # Neo4j 삭제
+        # Neo4j 삭제 - 메시지 존재 여부는 직접 쿼리로 확인 (deserialization 오류 방지)
         history = self._get_neo4j_history(session_id)
-        has_messages = len(history.messages) > 0
+        try:
+            # 직접 쿼리로 메시지 존재 여부 확인 (history.messages는 deserialization 필요)
+            count_result = self._graph.query(
+                f"MATCH (s:`{self._CHAT_SESSION_NODE_LABEL}` {{id: $session_id}})-[:LAST_MESSAGE]->(m) "
+                f"RETURN count(m) as cnt",
+                {"session_id": session_id}
+            )
+            has_messages = count_result[0]["cnt"] > 0 if count_result else False
+        except Exception:
+            # 쿼리 실패 시 캐시 기준으로 판단
+            has_messages = False
+
         history.clear()
 
         return has_messages or cache_had_data

@@ -421,11 +421,14 @@ class AgentService:
         )
 
     def get_cache_stats(self) -> dict:
-        """캐시 및 동시성 통계 반환"""
+        """캐시 및 동시성 통계 반환 (History Cache 포함)"""
+        from ..cache import get_history_cache
+
         stats = {
             "cache": self._cache.get_stats() if self._cache else {"enabled": False},
             "coalescer": self._coalescer.get_stats() if self._coalescer else {"enabled": False},
-            "semaphore": self._semaphore.get_stats() if self._semaphore else {"enabled": False}
+            "semaphore": self._semaphore.get_stats() if self._semaphore else {"enabled": False},
+            "history": get_history_cache().get_stats()
         }
         return stats
 

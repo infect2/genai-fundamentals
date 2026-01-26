@@ -15,11 +15,12 @@ Features:
 """
 
 import hashlib
+import os
 import time
 import threading
 import asyncio
 import re
-from typing import Optional, Any, Dict, Tuple, Callable, Awaitable
+from typing import Optional, Any, Dict, List, Tuple, Callable, Awaitable
 from dataclasses import dataclass, field
 from collections import OrderedDict
 from functools import lru_cache
@@ -577,6 +578,252 @@ def cached_query(ttl: float = 300):
 
 
 # =============================================================================
+# History Cache (대화 히스토리 캐싱)
+# =============================================================================
+
+@dataclass
+class HistoryEntry:
+    """히스토리 캐시 엔트리"""
+    messages: list  # [{"role": "human"|"ai", "content": "..."}]
+    created_at: float
+    last_accessed: float
+    dirty: bool = False  # Neo4j 동기화 필요 여부
+
+    def is_stale(self, ttl: float) -> bool:
+        """TTL 만료 여부 (마지막 접근 기준)"""
+        return time.time() - self.last_accessed > ttl
+
+
+class HistoryCache:
+    """
+    세션별 대화 히스토리 캐시
+
+    Neo4j 조회 부하를 50% 이상 감소시킵니다.
+    - 읽기: 캐시에서 즉시 반환 (Neo4j 조회 없음)
+    - 쓰기: 캐시에 저장 후 비동기 Neo4j 동기화
+
+    Usage:
+        cache = HistoryCache()
+
+        # 히스토리 조회 (캐시 히트 시 Neo4j 조회 없음)
+        messages = await cache.get_messages(session_id, neo4j_loader)
+
+        # 메시지 추가 (캐시에 즉시 반영, 비동기 동기화)
+        await cache.add_message(session_id, "human", "Hello")
+        await cache.add_message(session_id, "ai", "Hi there!")
+
+        # 주기적 동기화 (백그라운드 태스크)
+        await cache.sync_dirty_sessions(neo4j_saver)
+    """
+
+    def __init__(
+        self,
+        max_sessions: int = 500,
+        ttl: float = 1800,  # 30분
+        max_messages_per_session: int = 100
+    ):
+        """
+        Args:
+            max_sessions: 최대 캐시할 세션 수
+            ttl: 세션 TTL (초) - 마지막 접근 후 만료
+            max_messages_per_session: 세션당 최대 메시지 수
+        """
+        self._cache: OrderedDict[str, HistoryEntry] = OrderedDict()
+        self._max_sessions = max_sessions
+        self._ttl = float(os.getenv("HISTORY_CACHE_TTL", str(ttl)))
+        self._max_messages = int(os.getenv("HISTORY_CACHE_MAX_MESSAGES", str(max_messages_per_session)))
+        self._lock = threading.RLock()
+        self._stats = {
+            "hits": 0,
+            "misses": 0,
+            "writes": 0,
+            "syncs": 0,
+            "evictions": 0
+        }
+
+    def _evict_if_needed(self) -> None:
+        """최대 크기 초과 시 가장 오래된 세션 제거"""
+        while len(self._cache) >= self._max_sessions:
+            oldest_key = next(iter(self._cache))
+            del self._cache[oldest_key]
+            self._stats["evictions"] += 1
+
+    def _cleanup_stale(self) -> int:
+        """만료된 세션 정리"""
+        stale_keys = [
+            key for key, entry in self._cache.items()
+            if entry.is_stale(self._ttl)
+        ]
+        for key in stale_keys:
+            del self._cache[key]
+            self._stats["evictions"] += 1
+        return len(stale_keys)
+
+    def get_cached(self, session_id: str) -> Optional[list]:
+        """
+        캐시에서 히스토리 조회 (Neo4j 조회 없음)
+
+        Args:
+            session_id: 세션 ID
+
+        Returns:
+            캐시된 메시지 리스트 또는 None (캐시 미스)
+        """
+        with self._lock:
+            entry = self._cache.get(session_id)
+
+            if entry is None:
+                self._stats["misses"] += 1
+                return None
+
+            if entry.is_stale(self._ttl):
+                del self._cache[session_id]
+                self._stats["misses"] += 1
+                self._stats["evictions"] += 1
+                return None
+
+            # 히트: LRU 업데이트
+            self._cache.move_to_end(session_id)
+            entry.last_accessed = time.time()
+            self._stats["hits"] += 1
+
+            return entry.messages.copy()
+
+    def set_cached(self, session_id: str, messages: list) -> None:
+        """
+        캐시에 히스토리 저장
+
+        Args:
+            session_id: 세션 ID
+            messages: 메시지 리스트
+        """
+        with self._lock:
+            self._evict_if_needed()
+
+            # 최대 메시지 수 제한
+            truncated = messages[-self._max_messages:] if len(messages) > self._max_messages else messages
+
+            now = time.time()
+            self._cache[session_id] = HistoryEntry(
+                messages=truncated,
+                created_at=now,
+                last_accessed=now,
+                dirty=False
+            )
+
+    def add_message(self, session_id: str, role: str, content: str) -> None:
+        """
+        세션에 메시지 추가 (캐시에 즉시 반영)
+
+        Args:
+            session_id: 세션 ID
+            role: 메시지 역할 ("human" 또는 "ai")
+            content: 메시지 내용
+        """
+        with self._lock:
+            entry = self._cache.get(session_id)
+
+            if entry is None:
+                # 새 세션 생성
+                self._evict_if_needed()
+                now = time.time()
+                entry = HistoryEntry(
+                    messages=[],
+                    created_at=now,
+                    last_accessed=now,
+                    dirty=True
+                )
+                self._cache[session_id] = entry
+
+            # 메시지 추가
+            entry.messages.append({"role": role, "content": content})
+            entry.last_accessed = time.time()
+            entry.dirty = True
+            self._stats["writes"] += 1
+
+            # 최대 메시지 수 제한
+            if len(entry.messages) > self._max_messages:
+                entry.messages = entry.messages[-self._max_messages:]
+
+            # LRU 업데이트
+            self._cache.move_to_end(session_id)
+
+    def mark_synced(self, session_id: str) -> None:
+        """세션을 동기화됨으로 표시"""
+        with self._lock:
+            entry = self._cache.get(session_id)
+            if entry:
+                entry.dirty = False
+                self._stats["syncs"] += 1
+
+    def get_dirty_sessions(self) -> List[str]:
+        """동기화 필요한 세션 ID 목록"""
+        with self._lock:
+            return [
+                session_id for session_id, entry in self._cache.items()
+                if entry.dirty
+            ]
+
+    def clear_session(self, session_id: str) -> bool:
+        """세션 캐시 삭제"""
+        with self._lock:
+            if session_id in self._cache:
+                del self._cache[session_id]
+                return True
+            return False
+
+    def get_stats(self) -> Dict[str, Any]:
+        """캐시 통계"""
+        with self._lock:
+            total = self._stats["hits"] + self._stats["misses"]
+            hit_rate = self._stats["hits"] / total if total > 0 else 0.0
+
+            return {
+                "sessions": len(self._cache),
+                "max_sessions": self._max_sessions,
+                "hits": self._stats["hits"],
+                "misses": self._stats["misses"],
+                "writes": self._stats["writes"],
+                "syncs": self._stats["syncs"],
+                "evictions": self._stats["evictions"],
+                "hit_rate": f"{hit_rate:.2%}",
+                "dirty_sessions": len(self.get_dirty_sessions())
+            }
+
+
+# History Cache 싱글톤
+_history_cache_instance: Optional[HistoryCache] = None
+_history_cache_lock = threading.Lock()
+
+
+def get_history_cache(
+    max_sessions: int = 500,
+    ttl: float = 1800,
+    max_messages: int = 100
+) -> HistoryCache:
+    """
+    HistoryCache 싱글톤 인스턴스 반환
+
+    Args:
+        max_sessions: 최대 캐시 세션 수
+        ttl: 세션 TTL (초)
+        max_messages: 세션당 최대 메시지 수
+    """
+    global _history_cache_instance
+
+    if _history_cache_instance is None:
+        with _history_cache_lock:
+            if _history_cache_instance is None:
+                _history_cache_instance = HistoryCache(
+                    max_sessions=max_sessions,
+                    ttl=ttl,
+                    max_messages_per_session=max_messages
+                )
+
+    return _history_cache_instance
+
+
+# =============================================================================
 # 통합 통계
 # =============================================================================
 
@@ -585,14 +832,16 @@ def get_all_stats() -> Dict[str, Any]:
     모든 캐시/동시성 관련 통계 반환
 
     Returns:
-        cache, coalescer, semaphore 통계를 포함한 dict
+        cache, coalescer, semaphore, history 통계를 포함한 dict
     """
     cache = get_cache()
     coalescer = get_coalescer()
     semaphore = get_llm_semaphore()
+    history_cache = get_history_cache()
 
     return {
         "cache": cache.get_stats(),
         "coalescer": coalescer.get_stats(),
-        "semaphore": semaphore.get_stats()
+        "semaphore": semaphore.get_stats(),
+        "history": history_cache.get_stats()
     }

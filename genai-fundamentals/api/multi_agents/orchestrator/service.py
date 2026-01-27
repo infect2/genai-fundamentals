@@ -159,6 +159,12 @@ class OrchestratorService:
             # 3. 결과 통합
             final_answer = self._synthesize_results(query_text, agent_results)
 
+        # 대화 이력 저장 (Neo4j + 캐시)
+        try:
+            self._graphrag_service._add_to_history(session_id, query_text, final_answer)
+        except Exception as e:
+            logger.warning(f"Failed to save history for session {session_id}: {e}")
+
         return MultiAgentResult(
             answer=final_answer,
             domain_decision={
@@ -238,6 +244,12 @@ class OrchestratorService:
 
             # 3. 결과 통합
             final_answer = await self._synthesize_results_async(query_text, agent_results)
+
+        # 대화 이력 저장 (Neo4j + 캐시)
+        try:
+            self._graphrag_service._add_to_history(session_id, query_text, final_answer)
+        except Exception as e:
+            logger.warning(f"Failed to save history for session {session_id}: {e}")
 
         return MultiAgentResult(
             answer=final_answer,
@@ -483,7 +495,13 @@ class OrchestratorService:
                 "total_cost": total_cost
             }
         }
-        yield f"data: {json.dumps(done_event)}\n\n"
+        yield f"data: {json.dumps(done_event, default=str)}\n\n"
+
+        # 대화 이력 저장 (Neo4j + 캐시)
+        try:
+            self._graphrag_service._add_to_history(session_id, query_text, final_answer)
+        except Exception as e:
+            logger.warning(f"Failed to save history for session {session_id}: {e}")
 
     def get_available_domains(self) -> List[str]:
         """등록된 도메인 목록 반환"""

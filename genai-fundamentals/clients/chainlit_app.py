@@ -246,11 +246,17 @@ async def on_chat_start():
                     await cl.Message(content="📜 **이전 대화 이력을 복원합니다...**").send()
                     for msg in messages:
                         if msg["role"] == "human":
-                            await cl.Message(content=msg["content"], author="User", type="user_message").send()
+                            await cl.Message(
+                                content=msg["content"],
+                                author="User",
+                                type="user_message",
+                            ).send()
                         elif msg["role"] == "ai":
                             await cl.Message(content=msg["content"]).send()
-        except Exception:
-            pass
+        except Exception as e:
+            await cl.Message(
+                content=f"⚠️ 이전 대화 이력 복원에 실패했습니다: {str(e)}"
+            ).send()
 
 # -----------------------------------------------------------------------------
 # Chat Settings UI 변경 이벤트 핸들러

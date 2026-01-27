@@ -1,8 +1,9 @@
 """
-Capora AI Ontology Bot - A2A (Agent2Agent) Protocol Server (Agent-Only)
+Capora AI Ontology Bot - A2A (Agent2Agent) Protocol Server (Agent-Only + Multi-Agent v2)
 
 A2A 프로토콜을 통해 지식 그래프 검색 기능을 에이전트 간 통신으로 제공합니다.
-모든 쿼리는 ReAct Agent를 통해 처리됩니다.
+v1: 단일 ReAct Agent를 통한 쿼리 처리
+v2: 멀티 에이전트 시스템을 통한 도메인별 쿼리 처리
 
 실행 방법:
     python -m genai-fundamentals.api.a2a_server
@@ -39,6 +40,8 @@ import uvicorn
 
 from .graphrag_service import get_service, GraphRAGService
 from .agent.service import AgentService
+from .multi_agents.orchestrator import OrchestratorService, get_orchestrator
+from .multi_agents.registry import get_registry
 
 
 # =============================================================================
@@ -52,7 +55,7 @@ AGENT_CARD = AgentCard(
         "온톨로지 기반 데이터를 자연어로 검색합니다. "
         "ReAct Agent가 multi-step reasoning을 통해 답변을 생성합니다."
     ),
-    version="1.0.0",
+    version="2.0.0",
     url="http://localhost:9000",
     default_input_modes=["text/plain", "application/json"],
     default_output_modes=["text/plain", "application/json"],
@@ -78,6 +81,23 @@ AGENT_CARD = AgentCard(
             input_modes=["text/plain"],
             output_modes=["text/plain", "application/json"],
         ),
+        AgentSkill(
+            id="multi_agent_query",
+            name="Multi-Agent Domain Query",
+            description=(
+                "멀티 에이전트 시스템을 통해 물류 도메인별 쿼리를 처리합니다. "
+                "WMS, TMS, FMS, TAP!, Memory 도메인 에이전트가 협력하여 답변을 생성합니다."
+            ),
+            tags=["multi-agent", "wms", "tms", "fms", "tap", "memory", "logistics"],
+            examples=[
+                "배송 현황 알려줘",
+                "창고 적재율 조회해줘",
+                "정비 중인 차량 목록",
+                "내 차번호 기억해줘",
+            ],
+            input_modes=["text/plain", "application/json"],
+            output_modes=["text/plain", "application/json"],
+        ),
     ],
 )
 
@@ -92,6 +112,7 @@ class CaporaAgentExecutor(AgentExecutor):
     def __init__(self):
         self._service: GraphRAGService | None = None
         self._agent_service: AgentService | None = None
+        self._orchestrator_service: OrchestratorService | None = None
 
     def _get_service(self) -> GraphRAGService:
         if self._service is None:
@@ -103,6 +124,50 @@ class CaporaAgentExecutor(AgentExecutor):
             self._agent_service = AgentService(self._get_service())
         return self._agent_service
 
+    def _get_orchestrator_service(self) -> OrchestratorService:
+        if self._orchestrator_service is None:
+            self._initialize_multi_agent()
+            registry = get_registry()
+            self._orchestrator_service = get_orchestrator(registry, self._get_service())
+        return self._orchestrator_service
+
+    def _initialize_multi_agent(self) -> None:
+        """멀티 에이전트 시스템 초기화 - 도메인 에이전트들을 레지스트리에 등록"""
+        import logging
+        logger = logging.getLogger(__name__)
+        registry = get_registry()
+        svc = self._get_service()
+
+        for module_path, class_name, label in [
+            (".multi_agents.tms", "TMSAgent", "TMS"),
+            (".multi_agents.wms", "WMSAgent", "WMS"),
+            (".multi_agents.fms", "FMSAgent", "FMS"),
+            (".multi_agents.tap", "TAPAgent", "TAP"),
+            (".multi_agents.memory", "MemoryAgent", "Memory"),
+        ]:
+            try:
+                mod = __import__(f"genai-fundamentals.api{module_path}", fromlist=[class_name])
+                agent_cls = getattr(mod, class_name)
+                agent = agent_cls(graphrag_service=svc)
+                registry.register(agent)
+            except Exception as e:
+                logger.warning(f"Failed to register {label} agent: {e}")
+
+    def _extract_data(self, message) -> dict | None:
+        """메시지에서 DataPart 추출"""
+        if message and message.parts:
+            for part in message.parts:
+                if hasattr(part.root, "data"):
+                    return part.root.data
+        return None
+
+    def _is_multi_agent_request(self, message) -> bool:
+        """v2 멀티 에이전트 요청인지 판별"""
+        data = self._extract_data(message)
+        if data and isinstance(data, dict):
+            return "skill" in data and data["skill"] == "multi_agent_query" or "preferred_domain" in data
+        return False
+
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """A2A 요청 처리 - 모든 쿼리는 ReAct Agent를 통해 처리"""
         # 사용자 메시지에서 텍스트 추출
@@ -113,35 +178,63 @@ class CaporaAgentExecutor(AgentExecutor):
 
         try:
             # Multi-turn 지원: context_id가 없으면 새로 생성하여 세션 유지
-            # 클라이언트는 응답의 contextId를 다음 요청에 포함해야 함
             effective_context_id = context.context_id or f"a2a-session-{uuid.uuid4().hex[:8]}"
             session_id = effective_context_id
 
-            agent = self._get_agent_service()
-            result = await agent.query_async(
-                query_text=query, session_id=session_id
-            )
+            if self._is_multi_agent_request(context.message):
+                # v2: 멀티 에이전트 처리
+                req_data = self._extract_data(context.message) or {}
+                preferred_domain = req_data.get("preferred_domain", "auto")
+                allow_cross_domain = req_data.get("allow_cross_domain", True)
+                if "session_id" in req_data:
+                    session_id = req_data["session_id"]
 
-            # Agent 응답: 텍스트 + 구조화 데이터
-            data = {
-                "thoughts": result.thoughts,
-                "tool_calls": result.tool_calls,
-                "iterations": result.iterations,
-                "session_id": session_id,  # 클라이언트가 다음 요청에 사용할 수 있도록
-            }
-            if result.token_usage:
-                data["token_usage"] = {
-                    "total_tokens": result.token_usage.total_tokens,
-                    "prompt_tokens": result.token_usage.prompt_tokens,
-                    "completion_tokens": result.token_usage.completion_tokens,
-                    "total_cost": result.token_usage.total_cost,
+                orchestrator = self._get_orchestrator_service()
+                result = await orchestrator.query_async(
+                    query_text=query,
+                    session_id=session_id,
+                    preferred_domain=preferred_domain,
+                    allow_cross_domain=allow_cross_domain,
+                )
+
+                data = {
+                    "domain_decision": result.domain_decision,
+                    "agent_results": result.agent_results,
+                    "session_id": session_id,
                 }
+                if result.token_usage:
+                    data["token_usage"] = {
+                        "total_tokens": result.token_usage.total_tokens,
+                        "prompt_tokens": result.token_usage.prompt_tokens,
+                        "completion_tokens": result.token_usage.completion_tokens,
+                        "total_cost": result.token_usage.total_cost,
+                    }
+            else:
+                # v1: 단일 에이전트 처리
+                agent = self._get_agent_service()
+                result = await agent.query_async(
+                    query_text=query, session_id=session_id
+                )
+
+                data = {
+                    "thoughts": result.thoughts,
+                    "tool_calls": result.tool_calls,
+                    "iterations": result.iterations,
+                    "session_id": session_id,
+                }
+                if result.token_usage:
+                    data["token_usage"] = {
+                        "total_tokens": result.token_usage.total_tokens,
+                        "prompt_tokens": result.token_usage.prompt_tokens,
+                        "completion_tokens": result.token_usage.completion_tokens,
+                        "total_cost": result.token_usage.total_cost,
+                    }
+
             parts = [
                 Part(root=TextPart(text=result.answer)),
                 Part(root=DataPart(data=data)),
             ]
 
-            # 응답 메시지 전송 - effective_context_id 사용하여 세션 추적
             response = new_agent_parts_message(
                 parts=parts,
                 context_id=effective_context_id,
@@ -149,7 +242,6 @@ class CaporaAgentExecutor(AgentExecutor):
             )
             await event_queue.enqueue_event(response)
 
-            # 완료 상태 업데이트
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,

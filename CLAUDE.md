@@ -526,7 +526,8 @@ AgentCard는 에이전트의 기능을 자기 기술하는 매니페스트입니
 
 | Skill ID | 설명 | 예시 쿼리 |
 |----------|------|----------|
-| `ontology_agent` | ReAct Agent multi-step reasoning | "What entities are connected to X?", "Y와 관련된 데이터를 찾아줘" |
+| `ontology_agent` | ReAct Agent multi-step reasoning (v1) | "What entities are connected to X?", "Y와 관련된 데이터를 찾아줘" |
+| `multi_agent_query` | 멀티 에이전트 도메인별 쿼리 처리 (v2) | "배송 현황 알려줘", "창고 적재율 조회해줘" |
 
 ### 쿼리 테스트
 
@@ -552,7 +553,7 @@ curl -X POST http://localhost:9000/ \
 
 응답은 TextPart (자연어 답변) + DataPart (구조화 데이터)로 구성됩니다:
 
-**Agent 응답 DataPart:**
+**Agent 응답 DataPart (v1 - ontology_agent):**
 ```json
 {
   "thoughts": ["First, I'll search for connected entities...", ...],
@@ -561,6 +562,30 @@ curl -X POST http://localhost:9000/ \
   "token_usage": {"total_tokens": 1500, "total_cost": 0.0075}
 }
 ```
+
+**Multi-Agent 응답 DataPart (v2 - multi_agent_query):**
+```json
+{
+  "domain_decision": {
+    "primary": "tms",
+    "secondary": [],
+    "confidence": 0.95,
+    "reasoning": "배송 현황 조회 요청으로 TMS 도메인이 적합합니다.",
+    "cross_domain": false
+  },
+  "agent_results": {
+    "tms": {
+      "answer": "...",
+      "tool_calls": [...],
+      "iterations": 2
+    }
+  },
+  "session_id": "a2a-session-abc12345",
+  "token_usage": {"total_tokens": 1500, "total_cost": 0.0075}
+}
+```
+
+**v2 요청 방법:** 메시지에 DataPart를 포함하고 `"skill": "multi_agent_query"` 또는 `"preferred_domain"` 키를 지정합니다.
 
 ### 주요 파일
 

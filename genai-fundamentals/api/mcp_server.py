@@ -5,7 +5,9 @@ MCP 프로토콜을 통해 지식 그래프 검색 기능을 제공하는 서버
 모든 쿼리는 ReAct Agent를 통해 처리됩니다.
 
 MCP Tools:
-- agent_query: ReAct Agent를 사용한 자연어 쿼리
+- agent_query: ReAct Agent를 사용한 자연어 쿼리 (v1 단일 에이전트)
+- multi_agent_query: 멀티 에이전트 시스템으로 물류 도메인 쿼리 처리 (v2)
+- list_agents: 등록된 도메인 에이전트 목록 조회
 - reset_session: 세션 컨텍스트 초기화
 - list_sessions: 활성 세션 목록 조회
 
@@ -34,6 +36,8 @@ from mcp.types import Tool, TextContent
 
 from .graphrag_service import get_service, GraphRAGService
 from .agent import AgentService
+from .multi_agents.orchestrator import OrchestratorService, get_orchestrator
+from .multi_agents.registry import get_registry
 
 
 # =============================================================================
@@ -45,6 +49,7 @@ app = Server("capora-mcp")
 # Ontology 서비스 인스턴스 (지연 초기화)
 _service: GraphRAGService | None = None
 _agent_service: AgentService | None = None
+_orchestrator: OrchestratorService | None = None
 
 
 def get_graphrag_service() -> GraphRAGService:
@@ -61,6 +66,15 @@ def get_agent_service() -> AgentService:
     if _agent_service is None:
         _agent_service = AgentService(get_graphrag_service())
     return _agent_service
+
+
+def get_orchestrator_service() -> OrchestratorService:
+    """OrchestratorService 싱글톤 인스턴스 반환"""
+    global _orchestrator
+    if _orchestrator is None:
+        registry = get_registry()
+        _orchestrator = get_orchestrator(registry, get_graphrag_service())
+    return _orchestrator
 
 
 # =============================================================================
@@ -85,6 +99,48 @@ TOOLS = [
     Tool(
         name="list_sessions",
         description="현재 활성화된 모든 세션 ID 목록을 조회합니다.",
+        inputSchema={
+            "type": "object",
+            "properties": {}
+        }
+    ),
+    Tool(
+        name="multi_agent_query",
+        description=(
+            "멀티 에이전트 시스템으로 물류 도메인 쿼리를 처리합니다. "
+            "WMS(창고), TMS(운송), FMS(차량), TAP(호출) 도메인을 자동 라우팅하며, "
+            "크로스 도메인 쿼리도 지원합니다."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "자연어 질문"
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "세션 ID",
+                    "default": "default"
+                },
+                "preferred_domain": {
+                    "type": "string",
+                    "enum": ["auto", "wms", "tms", "fms", "tap"],
+                    "description": "선호 도메인 (auto=자동 라우팅)",
+                    "default": "auto"
+                },
+                "allow_cross_domain": {
+                    "type": "boolean",
+                    "description": "크로스 도메인 쿼리 허용",
+                    "default": True
+                }
+            },
+            "required": ["query"]
+        }
+    ),
+    Tool(
+        name="list_agents",
+        description="등록된 도메인 에이전트 목록을 조회합니다.",
         inputSchema={
             "type": "object",
             "properties": {}
@@ -192,6 +248,54 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 "completion_tokens": result.token_usage.completion_tokens,
                 "total_cost": result.token_usage.total_cost
             }
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(response, ensure_ascii=False, indent=2)
+        )]
+
+    elif name == "multi_agent_query":
+        # 멀티 에이전트 쿼리 실행
+        query_text = arguments.get("query", "")
+        session_id = arguments.get("session_id", "default")
+        preferred_domain = arguments.get("preferred_domain", "auto")
+        allow_cross_domain = arguments.get("allow_cross_domain", True)
+
+        orchestrator = get_orchestrator_service()
+        result = await orchestrator.query_async(
+            query_text=query_text,
+            session_id=session_id,
+            preferred_domain=preferred_domain,
+            allow_cross_domain=allow_cross_domain
+        )
+
+        response = {
+            "answer": result.answer,
+            "domain_decision": result.domain_decision,
+            "agent_results": result.agent_results
+        }
+        if result.token_usage:
+            response["token_usage"] = {
+                "total_tokens": result.token_usage.total_tokens,
+                "prompt_tokens": result.token_usage.prompt_tokens,
+                "completion_tokens": result.token_usage.completion_tokens,
+                "total_cost": result.token_usage.total_cost
+            }
+
+        return [TextContent(
+            type="text",
+            text=json.dumps(response, ensure_ascii=False, indent=2)
+        )]
+
+    elif name == "list_agents":
+        # 등록된 도메인 에이전트 목록 조회
+        registry = get_registry()
+        agents_info = registry.get_agent_info()
+
+        response = {
+            "agents": agents_info,
+            "count": len(agents_info)
+        }
 
         return [TextContent(
             type="text",

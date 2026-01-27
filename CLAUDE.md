@@ -338,6 +338,7 @@ genai-fundamentals/
 │   ├── generate_middlemile_owl.py  # Middlemile 물류 OWL 온톨로지 생성기
 │   ├── generate_fms_owl.py     # FMS 차량관리 OWL 온톨로지 생성기
 │   ├── generate_wms_owl.py    # WMS 창고관리 OWL 온톨로지 생성기
+│   ├── generate_tap_owl.py    # TAP! 호출서비스 OWL 온톨로지 생성기
 │   └── owl_to_neo4j.py         # OWL → Neo4j 변환 로더
 └── solutions/                  # Complete working implementations
 ```
@@ -1912,6 +1913,117 @@ MATCH (i:InventoryItem)-[:STORED_AT]->(b:Bin)
 WHERE i.expiryDate IS NOT NULL AND i.expiryDate < date() + duration('P30D')
 RETURN i.sku, i.quantity, i.expiryDate, b.binId
 ORDER BY i.expiryDate
+```
+
+## TAP! Service OWL 생성기
+
+TAP! 사용자 호출 서비스를 위한 OWL 온톨로지 데이터를 생성하는 도구입니다.
+고객, 호출 요청, 예약, 결제, 피드백 데이터를 OWL/Turtle 형식으로 생성합니다.
+
+### 실행 방법
+
+```bash
+# 기본 실행 (고객 200, 호출 500, 예약 100)
+python -m genai-fundamentals.tools.generate_tap_owl
+
+# 커스텀 수량 지정
+python -m genai-fundamentals.tools.generate_tap_owl [고객수] [호출수] [예약수]
+python -m genai-fundamentals.tools.generate_tap_owl 50 100 20
+```
+
+### 출력 파일
+
+| 파일 | 형식 | 설명 |
+|------|------|------|
+| `data/tap_ontology.owl` | RDF/XML | OWL 온톨로지 파일 |
+| `data/tap_ontology.ttl` | Turtle | 사람이 읽기 쉬운 형식 |
+
+### 온톨로지 스키마
+
+**Classes (클래스):**
+| 클래스 | 한국어 | 설명 |
+|--------|--------|------|
+| `Customer` | 고객 | TAP! 서비스 사용자 (멤버십 등급) |
+| `Vehicle` | 차량 | 호출 대상 차량 (5종 유형) |
+| `Driver` | 운전자 | 차량 운전자 |
+| `Location` | 위치 | 서울/수도권 주요 20개 위치 |
+| `CallRequest` | 호출요청 | 차량 호출 건 |
+| `Booking` | 예약 | 사전 예약 건 |
+| `Payment` | 결제 | 결제 정보 (카드/현금/포인트/법인) |
+| `Feedback` | 피드백 | 서비스 평가 (운전자/차량/앱/서비스) |
+
+**Object Properties (관계):**
+| 속성 | 설명 | Domain → Range |
+|------|------|----------------|
+| `requestedBy` | 요청고객 | CallRequest → Customer |
+| `bookedBy` | 예약고객 | Booking → Customer |
+| `pickupAt` | 픽업위치 | CallRequest/Booking → Location |
+| `dropoffAt` | 도착위치 | CallRequest/Booking → Location |
+| `fulfilledBy` | 배정차량 | CallRequest → Vehicle |
+| `drivenBy` | 배정운전자 | CallRequest → Driver |
+| `paidWith` | 결제정보 | CallRequest/Booking → Payment |
+| `hasFeedback` | 피드백 | CallRequest → Feedback |
+
+### 생성되는 데이터
+
+| 항목 | 기본 수량 | 설명 |
+|------|----------|------|
+| 고객 (Customer) | 200명 | 4단계 멤버십 |
+| 차량 (Vehicle) | 80대 | 5종 유형, 15개 모델 |
+| 운전자 (Driver) | 80명 | 차량과 1:1 매핑 |
+| 위치 (Location) | 20개 | 서울/수도권 주요 지점 |
+| 호출요청 (CallRequest) | 500건 | 6가지 상태 |
+| 예약 (Booking) | 100건 | 4가지 상태 |
+| 결제 (Payment) | 완료건 자동 | 4가지 결제 방법 |
+| 피드백 (Feedback) | 완료건의 60% | 4가지 카테고리 |
+
+### 차량 유형
+
+| 유형 | 한국어 | 기본요금 |
+|------|--------|---------|
+| `economy` | 이코노미 | 2,800원 |
+| `standard` | 일반 | 3,800원 |
+| `premium` | 프리미엄 | 5,500원 |
+| `suv` | SUV | 6,000원 |
+| `van` | 밴 | 7,000원 |
+
+### 네임스페이스
+
+| Prefix | URI |
+|--------|-----|
+| `tap:` | `http://capora.ai/ontology/tap#` |
+| `tapi:` | `http://capora.ai/ontology/tap/instance#` |
+
+### 샘플 Cypher 쿼리
+
+```cypher
+-- 실시간 호출 현황
+MATCH (cr:CallRequest)-[:REQUESTED_BY]->(c:Customer)
+WHERE cr.status IN ['pending', 'matched', 'arriving']
+OPTIONAL MATCH (cr)-[:FULFILLED_BY]->(v:Vehicle)
+RETURN cr.requestId, cr.status, cr.eta, c.name, v.licensePlate
+
+-- 고객별 이용 이력
+MATCH (c:Customer)<-[:REQUESTED_BY]-(cr:CallRequest)
+OPTIONAL MATCH (cr)-[:PICKUP_AT]->(p:Location)
+OPTIONAL MATCH (cr)-[:DROPOFF_AT]->(d:Location)
+RETURN c.name, cr.status, p.placeName, d.placeName, cr.requestTime
+ORDER BY cr.requestTime DESC
+
+-- 결제 통계
+MATCH (p:Payment)
+RETURN p.method, count(p) as count, sum(p.amount) as total
+ORDER BY total DESC
+
+-- 피드백 카테고리별 평균 평점
+MATCH (fb:Feedback)
+RETURN fb.category, avg(fb.rating) as avg_rating, count(fb) as count
+ORDER BY avg_rating DESC
+
+-- 인기 픽업 위치
+MATCH (cr:CallRequest)-[:PICKUP_AT]->(loc:Location)
+RETURN loc.placeName, count(cr) as pickups
+ORDER BY pickups DESC LIMIT 10
 ```
 
 ## OWL to Neo4j 변환기

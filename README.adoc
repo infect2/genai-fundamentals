@@ -1,78 +1,78 @@
 = AI Ontology Bot Reference Implementation
 
-지식 그래프 기반 AI 에이전트 시스템입니다. Neo4j 그래프 데이터베이스와 LLM을 활용하여 온톨로지 기반 데이터를 자연어로 검색하고 분석합니다.
+A knowledge graph-based AI agent system. It leverages Neo4j graph database and LLMs to search and analyze ontology-based data using natural language.
 
 == Features
 
-* *ReAct Agent*: Multi-step reasoning을 통한 복잡한 쿼리 처리
-* *Multiple RAG Pipelines*: Cypher, Vector, Hybrid, LLM-only 자동 라우팅
-* *REST API*: FastAPI 기반 HTTP 엔드포인트
-* *MCP Server*: Claude Desktop 연동을 위한 Model Context Protocol 지원 (v1 단일 에이전트 + v2 멀티 에이전트)
-* *A2A Server*: Agent-to-Agent 프로토콜 지원
-* *Elasticsearch Logging*: 실시간 쿼리/응답 로깅 및 분석
+* *ReAct Agent*: Complex query processing through multi-step reasoning
+* *Multiple RAG Pipelines*: Automatic routing across Cypher, Vector, Hybrid, and LLM-only pipelines
+* *REST API*: FastAPI-based HTTP endpoints
+* *MCP Server*: Model Context Protocol support for Claude Desktop integration (v1 single agent + v2 multi-agent)
+* *A2A Server*: Agent-to-Agent protocol support
+* *Elasticsearch Logging*: Real-time query/response logging and analysis
 
 == Quick Start
 
-=== 환경 설정
+=== Environment Setup
 
 [source,sh]
 ----
-# 의존성 설치
+# Install dependencies
 pip install -r requirements.txt
 
-# 환경변수 설정 (.env.example 참고)
+# Configure environment variables (see .env.example)
 cp .env.example .env
-# .env 파일에 NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, OPENAI_API_KEY 설정
+# Set NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, OPENAI_API_KEY in .env
 
-# 환경 검증
+# Verify environment
 python -m genai-fundamentals.tools.verify_environment
 ----
 
-=== API 서버 실행
+=== Running the API Server
 
 [source,sh]
 ----
-# REST API 서버 (기본 포트: 8000)
+# REST API server (default port: 8000)
 python -m genai-fundamentals.api.server
 
-# A2A 서버 (기본 포트: 9000)
+# A2A server (default port: 9000)
 python -m genai-fundamentals.api.a2a_server
 
-# MCP 서버 (stdio 모드, Claude Desktop용)
+# MCP server (stdio mode, for Claude Desktop)
 python -m genai-fundamentals.api.mcp_server
 ----
 
-=== API 테스트
+=== API Testing
 
 [source,sh]
 ----
-# REST API 쿼리 (v1 단일 에이전트)
+# REST API query (v1 single agent)
 curl -X POST http://localhost:8000/agent/query \
   -H "Content-Type: application/json" \
   -d '{"query": "What entities are connected to X?"}'
 
-# REST API 쿼리 (v2 멀티 에이전트)
+# REST API query (v2 multi-agent)
 curl -X POST http://localhost:8000/v2/query \
   -H "Content-Type: application/json" \
-  -d '{"query": "배송 현황 알려줘", "preferred_domain": "auto"}'
+  -d '{"query": "Show shipment status", "preferred_domain": "auto"}'
 
-# A2A AgentCard 조회
+# A2A AgentCard lookup
 curl http://localhost:9000/.well-known/agent.json
 ----
 
 === MCP Tools
 
-MCP 서버는 다음 도구를 제공합니다:
+The MCP server provides the following tools:
 
 [cols="1,3"]
 |===
 | Tool | Description
 
-| `agent_query` | v1 단일 ReAct Agent 쿼리
-| `multi_agent_query` | v2 멀티 에이전트 도메인 쿼리 (WMS/TMS/FMS/TAP 자동 라우팅)
-| `list_agents` | 등록된 도메인 에이전트 목록 조회
-| `reset_session` | 세션 컨텍스트 초기화
-| `list_sessions` | 활성 세션 목록 조회
+| `agent_query` | v1 single ReAct Agent query
+| `multi_agent_query` | v2 multi-agent domain query (auto-routing across WMS/TMS/FMS/TAP/Memory)
+| `list_agents` | List registered domain agents
+| `reset_session` | Reset session context
+| `list_sessions` | List active sessions
 |===
 
 == Architecture
@@ -84,15 +84,16 @@ MCP 서버는 다음 도구를 제공합니다:
 │  Clients: REST API | MCP | A2A | Streamlit|Chainlit │
 ├─────────────────────────────────────────────────────┤
 │  v1: ReAct Agent (LangGraph)                         │
-│  ├─ cypher_query: 엔티티/관계 조회                      │
-│  ├─ vector_search: 시맨틱 검색                         │
-│  ├─ hybrid_search: 복합 검색                          │
-│  └─ get_schema: 스키마 조회                            │
+│  ├─ cypher_query: Entity/relationship lookup          │
+│  ├─ vector_search: Semantic search                    │
+│  ├─ hybrid_search: Combined search                    │
+│  └─ get_schema: Schema lookup                         │
 ├─────────────────────────────────────────────────────┤
 │  v2: Multi-Agent Orchestrator                        │
-│  ├─ WMS: 창고 관리    ├─ TMS: 운송 관리                 │
-│  ├─ FMS: 차량 관리    └─ TAP: 호출 서비스               │
-│  └─ Cross-Domain 쿼리 지원                            │
+│  ├─ WMS: Warehouse  ├─ TMS: Transport                │
+│  ├─ FMS: Fleet      ├─ TAP: Call service              │
+│  ├─ Memory: User info store/recall                    │
+│  └─ Cross-domain query support                        │
 ├─────────────────────────────────────────────────────┤
 │  Neo4j Graph Database | LLM Provider (OpenAI/etc)   │
 └─────────────────────────────────────────────────────┘
@@ -102,19 +103,19 @@ MCP 서버는 다음 도구를 제공합니다:
 
 [source,sh]
 ----
-# 모든 테스트 실행
+# Run all tests
 pytest genai-fundamentals/tests/ -v
 
-# Mock 테스트만 (외부 API 호출 없음)
+# Mock tests only (no external API calls)
 pytest genai-fundamentals/tests/ -v -k "not integration"
 
-# Solution 테스트
+# Solution tests
 pytest genai-fundamentals/solutions/test_solutions.py -v
 ----
 
 == Documentation
 
-자세한 사용법은 link:CLAUDE.md[CLAUDE.md] 파일을 참고하세요.
+For detailed usage, see link:CLAUDE.md[CLAUDE.md].
 
 == License
 

@@ -336,6 +336,8 @@ genai-fundamentals/
 │   ├── load_movie_data.py      # Sample movie data loader
 │   ├── mine_evaluator.py       # MINE ontology validator
 │   ├── generate_middlemile_owl.py  # Middlemile 물류 OWL 온톨로지 생성기
+│   ├── generate_fms_owl.py     # FMS 차량관리 OWL 온톨로지 생성기
+│   ├── generate_wms_owl.py    # WMS 창고관리 OWL 온톨로지 생성기
 │   └── owl_to_neo4j.py         # OWL → Neo4j 변환 로더
 └── solutions/                  # Complete working implementations
 ```
@@ -1681,6 +1683,235 @@ for shipper in g.subjects(RDF.type, MM.Shipper):
 for vehicle in g.objects(carrier_uri, MM.operates):
     plate = g.value(vehicle, MM.licensePlate)
     print(f"차량: {plate}")
+```
+
+## FMS (Fleet Management System) OWL 생성기
+
+FMS 차량 관리 시스템을 위한 OWL 온톨로지 데이터를 생성하는 도구입니다.
+Neo4j에 로드하기 위한 테스트 데이터를 OWL/Turtle 형식으로 생성합니다.
+
+### 실행 방법
+
+```bash
+# 기본 실행 (조직 20, 차량 200, 운전자 150)
+python -m genai-fundamentals.tools.generate_fms_owl
+
+# 커스텀 수량 지정
+python -m genai-fundamentals.tools.generate_fms_owl [조직수] [차량수] [운전자수]
+python -m genai-fundamentals.tools.generate_fms_owl 5 50 30
+```
+
+### 출력 파일
+
+| 파일 | 형식 | 설명 |
+|------|------|------|
+| `data/fms_ontology.owl` | RDF/XML | OWL 온톨로지 파일 |
+| `data/fms_ontology.ttl` | Turtle | 사람이 읽기 쉬운 형식 |
+
+### 온톨로지 스키마
+
+**Classes (클래스):**
+| 클래스 | 한국어 | 설명 |
+|--------|--------|------|
+| `Organization` | 조직 | 차량/운전자 소속 조직 |
+| `Vehicle` | 차량 | 관리 대상 차량 |
+| `Driver` | 운전자 | 차량 운전자 |
+| `MaintenanceRecord` | 정비기록 | 차량 정비 이력 |
+| `FuelRecord` | 주유기록 | 연료 주입 기록 |
+| `Consumable` | 소모품 | 차량 소모품 정보 |
+| `RiskScore` | 위험점수 | 차량/운전자 위험도 평가 |
+
+**Object Properties (관계):**
+| 속성 | 설명 | Domain → Range |
+|------|------|----------------|
+| `assignedTo` | 배정 | Driver → Vehicle |
+| `hasMaintenance` | 정비기록 | Vehicle → MaintenanceRecord |
+| `hasFuel` | 주유기록 | Vehicle → FuelRecord |
+| `hasConsumable` | 소모품 | Vehicle → Consumable |
+| `ownedBy` | 소유조직 | Vehicle → Organization |
+| `employedBy` | 소속조직 | Driver → Organization |
+| `hasRisk` | 위험도 | Vehicle/Driver → RiskScore |
+
+### 생성되는 데이터
+
+| 항목 | 기본 수량 | 설명 |
+|------|----------|------|
+| 조직 (Organization) | 20개 | 한국 물류 회사명 기반 |
+| 차량 (Vehicle) | 200대 | 10종 차량유형, 6개 브랜드 |
+| 운전자 (Driver) | 150명 | 면허, 평점, 차량 배정 |
+| 정비기록 | 차량당 1~5건 | 5가지 정비유형 |
+| 주유기록 | 차량당 3~10건 | 5가지 연료유형 |
+| 소모품 | 차량당 3~6종 | 10종 소모품, 수명 기반 상태 |
+| 위험점수 | 차량+운전자 각 1건 | 9가지 위험요인 |
+
+### 차량 상태 분포
+
+| 상태 | 가중치 | 설명 |
+|------|--------|------|
+| `active` | 60% | 운행 중 |
+| `maintenance` | 20% | 정비 중 |
+| `inactive` | 10% | 비활성 |
+| `retired` | 10% | 퇴역 |
+
+### 소모품 상태 산정
+
+소모품 상태는 `currentLifeKm / expectedLifeKm` 비율로 자동 산정됩니다:
+
+| 상태 | 비율 | 설명 |
+|------|------|------|
+| `good` | < 60% | 양호 |
+| `warning` | 60~80% | 주의 |
+| `replace_soon` | 80~100% | 교체 임박 |
+| `overdue` | > 100% | 교체 초과 |
+
+### 네임스페이스
+
+| Prefix | URI |
+|--------|-----|
+| `fms:` | `http://capora.ai/ontology/fms#` |
+| `fmsi:` | `http://capora.ai/ontology/fms/instance#` |
+
+### 전체 워크플로우
+
+```bash
+# 1. FMS 데이터 생성
+python -m genai-fundamentals.tools.generate_fms_owl
+
+# 2. Neo4j에 로드
+python -m genai-fundamentals.tools.owl_to_neo4j data/fms_ontology.ttl --clear
+
+# 3. Neo4j Browser에서 확인
+# MATCH (v:Vehicle)-[:HAS_MAINTENANCE]->(m) RETURN v, m LIMIT 20
+```
+
+### 샘플 Cypher 쿼리
+
+```cypher
+-- 차량 상태 통계
+MATCH (v:Vehicle) RETURN v.status, count(v) ORDER BY count(v) DESC
+
+-- 운전자별 배정 차량
+MATCH (d:Driver)-[:ASSIGNED_TO]->(v:Vehicle)
+RETURN d.name, collect(v.licensePlate) as vehicles
+
+-- 정비 필요 차량
+MATCH (v:Vehicle)-[:HAS_MAINTENANCE]->(m:MaintenanceRecord)
+WHERE m.nextDueDate < date()
+RETURN v.licensePlate, m.maintenanceType, m.nextDueDate
+
+-- 소모품 교체 필요
+MATCH (v:Vehicle)-[:HAS_CONSUMABLE]->(c:Consumable)
+WHERE c.status IN ['warning', 'replace_soon', 'overdue']
+RETURN v.licensePlate, c.name, c.status, c.currentLifeKm, c.expectedLifeKm
+
+-- 고위험 차량/운전자
+MATCH (n)-[:HAS_RISK]->(r:RiskScore)
+WHERE r.score > 70
+RETURN labels(n)[0] as type, n.name, r.score, r.factors
+ORDER BY r.score DESC
+```
+
+## WMS (Warehouse Management System) OWL 생성기
+
+WMS 창고 관리 시스템을 위한 OWL 온톨로지 데이터를 생성하는 도구입니다.
+창고, 구역, 로케이션(행-열-레벨), 재고, 입출고 오더를 OWL/Turtle 형식으로 생성합니다.
+
+### 실행 방법
+
+```bash
+# 기본 실행 (창고 10, 입고 100, 출고 150)
+python -m genai-fundamentals.tools.generate_wms_owl
+
+# 커스텀 수량 지정
+python -m genai-fundamentals.tools.generate_wms_owl [창고수] [입고수] [출고수]
+python -m genai-fundamentals.tools.generate_wms_owl 3 20 30
+```
+
+### 출력 파일
+
+| 파일 | 형식 | 설명 |
+|------|------|------|
+| `data/wms_ontology.owl` | RDF/XML | OWL 온톨로지 파일 |
+| `data/wms_ontology.ttl` | Turtle | 사람이 읽기 쉬운 형식 |
+
+### 온톨로지 스키마
+
+**Classes (클래스):**
+| 클래스 | 한국어 | 설명 |
+|--------|--------|------|
+| `Organization` | 조직 | 창고 운영 조직 |
+| `Warehouse` | 창고 | 물류 보관 시설 (10개 한국 주요 물류센터) |
+| `Zone` | 구역 | inbound/storage/outbound/picking 구역 |
+| `Bin` | 로케이션 | 행-열-레벨 기반 보관 위치 |
+| `InventoryItem` | 재고품목 | SKU, 수량, 로트번호, 유효기한 |
+| `InboundOrder` | 입고오더 | 입고 예정/완료 오더 |
+| `OutboundOrder` | 출고오더 | 출고 예정/완료 오더 |
+
+**Object Properties (관계):**
+| 속성 | 설명 | Domain → Range |
+|------|------|----------------|
+| `belongsTo` | 소속창고 | Zone → Warehouse |
+| `locatedIn` | 위치구역 | Bin → Zone |
+| `storedAt` | 보관위치 | InventoryItem → Bin |
+| `inboundTo` | 입고창고 | InboundOrder → Warehouse |
+| `outboundFrom` | 출고창고 | OutboundOrder → Warehouse |
+| `containsItem` | 포함품목 | Order → InventoryItem |
+| `managedBy` | 운영조직 | Warehouse → Organization |
+
+### 생성되는 데이터
+
+| 항목 | 기본 수량 | 설명 |
+|------|----------|------|
+| 조직 (Organization) | 12개 | 물류 운영 기업 |
+| 창고 (Warehouse) | 10개 | 한국 주요 물류센터 |
+| 구역 (Zone) | 창고당 4개 | inbound/storage/outbound/picking |
+| 로케이션 (Bin) | 구역당 ~100개 | 행(3~5) × 열(5~10) × 레벨(2~4) |
+| 재고품목 | occupied 빈당 1개 | 10개 SKU 카테고리 |
+| 입고오더 | 100건 | 5가지 상태 |
+| 출고오더 | 150건 | 5가지 상태 |
+
+### 빈 상태 분포
+
+| 상태 | 가중치 | 설명 |
+|------|--------|------|
+| `occupied` | 55% | 재고 보관 중 |
+| `empty` | 30% | 비어 있음 |
+| `reserved` | 15% | 예약됨 |
+
+### 네임스페이스
+
+| Prefix | URI |
+|--------|-----|
+| `wms:` | `http://capora.ai/ontology/wms#` |
+| `wmsi:` | `http://capora.ai/ontology/wms/instance#` |
+
+### 샘플 Cypher 쿼리
+
+```cypher
+-- 창고별 적재율
+MATCH (w:Warehouse)<-[:BELONGS_TO]-(z:Zone)<-[:LOCATED_IN]-(b:Bin)
+WITH w, count(b) as total_bins
+MATCH (w)<-[:BELONGS_TO]-(:Zone)<-[:LOCATED_IN]-(b2:Bin)
+WHERE b2.status = 'occupied'
+WITH w, total_bins, count(b2) as occupied
+RETURN w.name, total_bins, occupied,
+       round(100.0 * occupied / total_bins, 2) as utilization_pct
+
+-- 특정 SKU 위치 조회
+MATCH (i:InventoryItem)-[:STORED_AT]->(b:Bin)-[:LOCATED_IN]->(z:Zone)-[:BELONGS_TO]->(w:Warehouse)
+WHERE i.sku STARTS WITH 'ELC'
+RETURN w.name, z.zoneType, b.binId, i.sku, i.quantity
+
+-- 입고 현황
+MATCH (io:InboundOrder)-[:INBOUND_TO]->(w:Warehouse)
+WHERE io.status IN ['scheduled', 'arrived', 'receiving']
+RETURN io.inboundId, io.status, io.expectedDate, w.name
+
+-- 유효기한 임박 재고
+MATCH (i:InventoryItem)-[:STORED_AT]->(b:Bin)
+WHERE i.expiryDate IS NOT NULL AND i.expiryDate < date() + duration('P30D')
+RETURN i.sku, i.quantity, i.expiryDate, b.binId
+ORDER BY i.expiryDate
 ```
 
 ## OWL to Neo4j 변환기

@@ -938,7 +938,18 @@ Turn 2 쿼리
 | `api/agent/service.py` | `_load_history_messages()`, `history_window` 설정 |
 | `api/agent/prompts.py` | Multi-Turn Context 처리 지침 |
 | `api/graphrag_service.py` | `get_history_messages()`, `_add_to_history()` |
+| `api/multi_agents/orchestrator/service.py` | v2 멀티 에이전트 대화 이력 저장 (`query`, `query_async`, `query_stream`) |
 | `api/cache.py` | `HistoryCache` (메모리 캐시로 Neo4j 부하 감소) |
+
+**v1/v2 대화 이력 저장:**
+
+| 버전 | 저장 위치 | 저장 시점 |
+|------|----------|----------|
+| v1 (AgentService) | `api/agent/service.py` | `_save_history()` → `_add_to_history()` |
+| v2 (OrchestratorService) | `api/multi_agents/orchestrator/service.py` | `query()`, `query_async()`, `query_stream()` 완료 후 `_add_to_history()` |
+
+두 버전 모두 `GraphRAGService._add_to_history()`를 호출하여 Neo4j와 HistoryCache에 동시 저장합니다.
+Chainlit 클라이언트는 로그인 시 `GET /history/{session_id}`로 이력을 조회하여 복원합니다.
 
 ## Token Usage Tracking
 

@@ -69,6 +69,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"  - 상태: {row.get('status', 'N/A')}, 주행거리: {row.get('mileage', 'N/A')}km\n"
                 output += f"  - 배정 운전자: {row.get('driver', '미배정')}\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -121,6 +122,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
                 if row.get('desc'):
                     output += f"  - 내용: {row.get('desc')}\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -168,6 +170,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"  - 면허 만료: {row.get('license_expiry', 'N/A')}\n"
                 output += f"  - 배정 차량: {vehicle_str}\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -220,6 +223,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"  - 상태: {row.get('status', 'N/A')}\n"
                 output += f"  - 사용: {row.get('current_km', 0)}/{row.get('expected_km', 0)}km\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -256,7 +260,9 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
 - 총 차량: {r.get('total_vehicles', 0)}대
 - 총 운전자: {r.get('total_drivers', 0)}명
 - 정비 중: {r.get('in_maintenance', 0)}대
-"""
+
+Cypher Query:
+{cypher.strip()}"""
 
             elif stat_type == "status":
                 cypher = """
@@ -269,6 +275,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
                 output = "## 차량 상태 통계\n\n"
                 for row in result:
                     output += f"- {row.get('status', 'N/A')}: {row.get('count', 0)}대\n"
+                output += f"\n\nCypher Query:\n{cypher.strip()}"
                 return output
 
             return "지원하지 않는 통계 유형입니다."

@@ -93,6 +93,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"- 운송사: {row.get('carrier', 'N/A')}\n"
                 output += f"- 차량: {row.get('vehicle', 'N/A')}\n\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -148,6 +149,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"- 서비스 지역: {regions_str}\n"
                 output += f"- 보유 차량: {row.get('vehicle_count', 0)}대\n\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -207,6 +209,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"- 배정 건수: {row.get('assigned_count', 0)}건\n"
                 output += f"- 배송 상태: {status_str}\n\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -256,6 +259,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"- 운송사: {row.get('carrier', 'N/A')}\n"
                 output += f"- 차량 유형: {row.get('vehicle_type', 'N/A')}\n\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -311,6 +315,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"- 목적지: {row.get('destination', 'N/A')}\n"
                 output += f"- 운송사: {row.get('carrier', 'N/A')}\n\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -354,7 +359,9 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
 - 등록 운송사: {r.get('total_carriers', 0)}개
 - 등록 차량: {r.get('total_vehicles', 0)}대
 - 등록 화주: {r.get('total_shippers', 0)}개
-"""
+
+Cypher Query:
+{cypher.strip()}"""
 
             elif stat_type == "carrier":
                 cypher = """
@@ -368,6 +375,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output = "## 운송사별 배송 건수 (Top 10)\n\n"
                 for i, row in enumerate(result, 1):
                     output += f"{i}. {row.get('carrier', 'N/A')}: {row.get('shipment_count', 0)}건\n"
+                output += f"\n\nCypher Query:\n{cypher.strip()}"
                 return output
 
             elif stat_type == "status":
@@ -381,6 +389,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output = "## 상태별 배송 건수\n\n"
                 for row in result:
                     output += f"- {row.get('status', 'N/A')}: {row.get('count', 0)}건\n"
+                output += f"\n\nCypher Query:\n{cypher.strip()}"
                 return output
 
             elif stat_type == "route":
@@ -396,6 +405,7 @@ def create_tms_tools(graphrag_service) -> List[BaseTool]:
                 output = "## 주요 경로별 배송 건수 (Top 10)\n\n"
                 for i, row in enumerate(result, 1):
                     output += f"{i}. {row.get('origin', 'N/A')} → {row.get('destination', 'N/A')}: {row.get('count', 0)}건\n"
+                output += f"\n\nCypher Query:\n{cypher.strip()}"
                 return output
 
             else:

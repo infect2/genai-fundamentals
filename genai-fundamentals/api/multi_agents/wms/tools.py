@@ -76,6 +76,7 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
                 loc_str = ", ".join(str(l) for l in locs if l)[:50] if locs else "N/A"
                 output += f"- **{row.get('sku', 'N/A')}** @ {row.get('warehouse', 'N/A')}: {row.get('total_qty', 0)}개 (위치: {loc_str})\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -108,6 +109,7 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
             for row in result:
                 output += f"- {row.get('warehouse', 'N/A')} > {row.get('zone', 'N/A')} > {row.get('bin', 'N/A')}: {row.get('qty', 0)}개\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -151,6 +153,7 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
                 output += f"- **{row.get('warehouse', 'N/A')}**: {row.get('utilization_pct', 0)}% "
                 output += f"({row.get('occupied_bins', 0)}/{row.get('total_bins', 0)} bins)\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -195,6 +198,7 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
             for row in result:
                 output += f"- **{row.get('id', 'N/A')}** [{row.get('status', 'N/A')}]: {row.get('warehouse', 'N/A')} (예정: {row.get('expected', 'N/A')})\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -239,6 +243,7 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
             for row in result:
                 output += f"- **{row.get('id', 'N/A')}** [{row.get('status', 'N/A')}]: {row.get('warehouse', 'N/A')} (예정: {row.get('expected', 'N/A')})\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:

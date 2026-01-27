@@ -84,6 +84,7 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
                     output += f"- ETA: {row.get('eta')}\n"
                 output += "\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -129,6 +130,7 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
             elif status == 'in_progress':
                 output += "\n**현재 이동 중입니다.**\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -184,6 +186,7 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
                 output += f"  - 픽업: {row.get('pickup', 'N/A')}\n"
                 output += f"  - 목적지: {row.get('dropoff', 'N/A')}\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -225,6 +228,7 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
                 output += f"  - 요청: {row.get('request_id', 'N/A')}, 상태: {row.get('status', 'N/A')}\n"
 
             output += f"\n**총 결제 금액: {total:,}원**\n"
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:
@@ -257,6 +261,7 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
                 stars = "★" * int(round(rating)) + "☆" * (5 - int(round(rating)))
                 output += f"- **{row.get('category', 'N/A')}**: {rating:.1f} {stars} ({row.get('count', 0)}건)\n"
 
+            output += f"\n\nCypher Query:\n{cypher.strip()}"
             return output
 
         except Exception as e:

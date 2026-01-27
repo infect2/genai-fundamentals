@@ -10,11 +10,12 @@ Usage:
     config = get_config()
     print(config.agent.max_iterations)
     print(config.neo4j.max_pool_size)
+    print(config.multi_agent.orchestrator_enabled)
 """
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 from functools import lru_cache
 
 
@@ -101,6 +102,88 @@ class LoggingConfig:
     es_api_key: str = field(default_factory=lambda: os.getenv("ES_API_KEY", ""))
 
 
+# =============================================================================
+# 멀티 에이전트 설정 (Multi-Agent Configuration)
+# =============================================================================
+
+@dataclass(frozen=True)
+class DomainAgentConfig:
+    """
+    도메인 에이전트 개별 설정
+
+    Attributes:
+        enabled: 에이전트 활성화 여부
+        max_iterations: 최대 반복 횟수
+        timeout: 쿼리 타임아웃 (초)
+        tools_enabled: 활성화할 도구 목록 (["all"] = 모든 도구)
+    """
+    enabled: bool = True
+    max_iterations: int = 10
+    timeout: float = 60.0
+    tools_enabled: List[str] = field(default_factory=lambda: ["all"])
+
+
+@dataclass(frozen=True)
+class MultiAgentConfig:
+    """
+    멀티 에이전트 시스템 설정
+
+    Attributes:
+        orchestrator_enabled: Master Orchestrator 활성화 여부
+        cross_domain_enabled: 크로스 도메인 처리 활성화 여부
+        max_cross_domain_agents: 크로스 도메인 시 최대 에이전트 수
+        routing_confidence_threshold: 라우팅 신뢰도 임계값
+        wms: WMS 도메인 에이전트 설정
+        tms: TMS 도메인 에이전트 설정
+        fms: FMS 도메인 에이전트 설정
+        tap: TAP! 도메인 에이전트 설정
+    """
+    orchestrator_enabled: bool = field(
+        default_factory=lambda: os.getenv("MULTI_AGENT_ORCHESTRATOR_ENABLED", "true").lower() == "true"
+    )
+    cross_domain_enabled: bool = field(
+        default_factory=lambda: os.getenv("MULTI_AGENT_CROSS_DOMAIN_ENABLED", "true").lower() == "true"
+    )
+    max_cross_domain_agents: int = field(
+        default_factory=lambda: int(os.getenv("MULTI_AGENT_MAX_CROSS_DOMAIN", "3"))
+    )
+    routing_confidence_threshold: float = field(
+        default_factory=lambda: float(os.getenv("MULTI_AGENT_ROUTING_THRESHOLD", "0.7"))
+    )
+
+    # 도메인별 설정
+    wms: DomainAgentConfig = field(default_factory=lambda: DomainAgentConfig(
+        enabled=os.getenv("MULTI_AGENT_WMS_ENABLED", "true").lower() == "true",
+        max_iterations=int(os.getenv("MULTI_AGENT_WMS_MAX_ITERATIONS", "10")),
+        timeout=float(os.getenv("MULTI_AGENT_WMS_TIMEOUT", "60")),
+    ))
+    tms: DomainAgentConfig = field(default_factory=lambda: DomainAgentConfig(
+        enabled=os.getenv("MULTI_AGENT_TMS_ENABLED", "true").lower() == "true",
+        max_iterations=int(os.getenv("MULTI_AGENT_TMS_MAX_ITERATIONS", "10")),
+        timeout=float(os.getenv("MULTI_AGENT_TMS_TIMEOUT", "60")),
+    ))
+    fms: DomainAgentConfig = field(default_factory=lambda: DomainAgentConfig(
+        enabled=os.getenv("MULTI_AGENT_FMS_ENABLED", "true").lower() == "true",
+        max_iterations=int(os.getenv("MULTI_AGENT_FMS_MAX_ITERATIONS", "10")),
+        timeout=float(os.getenv("MULTI_AGENT_FMS_TIMEOUT", "60")),
+    ))
+    tap: DomainAgentConfig = field(default_factory=lambda: DomainAgentConfig(
+        enabled=os.getenv("MULTI_AGENT_TAP_ENABLED", "true").lower() == "true",
+        max_iterations=int(os.getenv("MULTI_AGENT_TAP_MAX_ITERATIONS", "10")),
+        timeout=float(os.getenv("MULTI_AGENT_TAP_TIMEOUT", "60")),
+    ))
+
+    def get_domain_config(self, domain: str) -> DomainAgentConfig:
+        """도메인 이름으로 설정 조회"""
+        domain_map = {
+            "wms": self.wms,
+            "tms": self.tms,
+            "fms": self.fms,
+            "tap": self.tap,
+        }
+        return domain_map.get(domain.lower(), DomainAgentConfig())
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """전체 애플리케이션 설정"""
@@ -110,6 +193,7 @@ class AppConfig:
     cache: CacheConfig = field(default_factory=CacheConfig)
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    multi_agent: MultiAgentConfig = field(default_factory=MultiAgentConfig)
 
 
 # =============================================================================

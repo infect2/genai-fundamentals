@@ -1,18 +1,20 @@
 # =============================================================================
-# GraphRAG Chainlit Client
+# GraphRAG Chainlit Client (Multi-Agent v2)
 # =============================================================================
 # 이 파일은 GraphRAG API 서버와 통신하는 Chainlit 기반 웹 채팅 클라이언트입니다.
 #
 # 주요 기능:
 # - 채팅 형식의 대화형 인터페이스 제공
+# - 멀티 에이전트 시스템 지원 (TMS, WMS, FMS, TAP)
+# - 도메인 자동 라우팅 및 수동 선택
+# - 크로스 도메인 쿼리 지원
 # - 실시간 스트리밍 응답 지원 (Server-Sent Events)
 # - 세션별 대화 컨텍스트 관리
-# - 컨텍스트 리셋 토글 기능
-# - 슬래시 명령어 지원 (/settings, /reset, /help)
+# - 슬래시 명령어 지원 (/settings, /reset, /help, /agents)
 # - 인라인 액션 버튼 지원
 #
 # 실행 방법:
-#   chainlit run genai-fundamentals/chainlit_client.py --port 8502
+#   chainlit run genai-fundamentals/clients/chainlit_app.py --port 8502
 #
 # 사전 요구사항:
 #   - GraphRAG API 서버가 실행 중이어야 함 (기본: http://localhost:8000)
@@ -23,11 +25,30 @@
 # 의존성 임포트
 # -----------------------------------------------------------------------------
 import chainlit as cl                    # Chainlit 프레임워크 - 대화형 UI 구축
-from chainlit.input_widget import Switch # 토글 스위치 위젯 (설정 UI용)
+from chainlit.input_widget import Switch, Select  # 위젯 (설정 UI용)
 import requests                          # HTTP 요청 라이브러리 (API 통신)
 import json                              # JSON 파싱/직렬화
 import uuid                              # 고유 세션 ID 생성
 from typing import Optional              # 타입 힌트
+
+# -----------------------------------------------------------------------------
+# 도메인 정의 (Multi-Agent System)
+# -----------------------------------------------------------------------------
+DOMAIN_OPTIONS = {
+    "auto": "🤖 자동 (Auto)",
+    "tms": "🚚 TMS (운송)",
+    "wms": "📦 WMS (창고)",
+    "fms": "🔧 FMS (차량)",
+    "tap": "📱 TAP (호출)",
+}
+
+DOMAIN_EMOJI = {
+    "tms": "🚚",
+    "wms": "📦",
+    "fms": "🔧",
+    "tap": "📱",
+    "unknown": "❓",
+}
 
 # -----------------------------------------------------------------------------
 # 전역 설정
@@ -114,6 +135,12 @@ async def on_chat_start():
     #                  False이면 항상 빈 채팅으로 시작
     cl.user_session.set("restore_history", True)
 
+    # preferred_domain: 선호 도메인 (auto=자동 라우팅)
+    cl.user_session.set("preferred_domain", "auto")
+
+    # allow_cross_domain: 크로스 도메인 쿼리 허용 여부
+    cl.user_session.set("allow_cross_domain", True)
+
     # -------------------------------------------------------------------------
     # Chat Settings UI 구성
     # -------------------------------------------------------------------------
@@ -121,12 +148,20 @@ async def on_chat_start():
     # 설정 아이콘(⚙️)을 클릭하면 이 토글 버튼들이 표시됨
     settings = await cl.ChatSettings(
         [
-            # 컨텍스트 리셋 토글 스위치
+            # 도메인 선택 드롭다운
+            Select(
+                id="preferred_domain",
+                label="🎯 도메인 선택",
+                values=list(DOMAIN_OPTIONS.keys()),
+                initial_index=0,  # auto
+                description="질문을 처리할 도메인을 선택합니다. Auto는 자동 라우팅입니다."
+            ),
+            # 크로스 도메인 토글 스위치
             Switch(
-                id="reset_context",           # 설정 값의 키 (on_settings_update에서 사용)
-                label="🔄 컨텍스트 리셋",      # UI에 표시되는 레이블
-                initial=False,                # 초기값
-                description="활성화하면 각 질문마다 이전 대화 맥락을 초기화합니다."
+                id="allow_cross_domain",
+                label="🔀 크로스 도메인",
+                initial=True,
+                description="여러 도메인에 걸친 질문을 허용합니다."
             ),
             # 스트리밍 모드 토글 스위치
             Switch(
@@ -134,6 +169,13 @@ async def on_chat_start():
                 label="📡 스트리밍 모드",      # UI에 표시되는 레이블
                 initial=True,                 # 초기값 (기본적으로 스트리밍 활성화)
                 description="응답을 실시간으로 스트리밍합니다."
+            ),
+            # 컨텍스트 리셋 토글 스위치
+            Switch(
+                id="reset_context",           # 설정 값의 키 (on_settings_update에서 사용)
+                label="🔄 컨텍스트 리셋",      # UI에 표시되는 레이블
+                initial=False,                # 초기값
+                description="활성화하면 각 질문마다 이전 대화 맥락을 초기화합니다."
             ),
             # 대화 이력 복원 토글 스위치
             Switch(
@@ -230,11 +272,16 @@ async def on_settings_update(settings):
         - .get() 메서드를 사용하여 키가 없는 경우 기본값을 반환합니다.
     """
     # 세션 스토리지에 새로운 설정값 저장
+    cl.user_session.set("preferred_domain", settings.get("preferred_domain", "auto"))
+    cl.user_session.set("allow_cross_domain", settings.get("allow_cross_domain", True))
     cl.user_session.set("reset_context", settings.get("reset_context", False))
     cl.user_session.set("use_streaming", settings.get("use_streaming", True))
     cl.user_session.set("restore_history", settings.get("restore_history", True))
 
     # 사용자에게 표시할 상태 문자열 생성
+    domain = settings.get("preferred_domain", "auto")
+    domain_status = DOMAIN_OPTIONS.get(domain, domain)
+    cross_domain_status = "✅ 활성화" if settings.get("allow_cross_domain") else "❌ 비활성화"
     reset_status = "✅ 활성화" if settings.get("reset_context") else "❌ 비활성화"
     stream_status = "✅ 활성화" if settings.get("use_streaming") else "❌ 비활성화"
     history_status = "✅ 활성화" if settings.get("restore_history") else "❌ 비활성화"
@@ -242,8 +289,10 @@ async def on_settings_update(settings):
     # 설정 변경 확인 메시지 표시
     await cl.Message(
         content=f"⚙️ **설정이 변경되었습니다**\n\n"
-                f"- 컨텍스트 리셋: {reset_status}\n"
+                f"- 도메인: {domain_status}\n"
+                f"- 크로스 도메인: {cross_domain_status}\n"
                 f"- 스트리밍 모드: {stream_status}\n"
+                f"- 컨텍스트 리셋: {reset_status}\n"
                 f"- 대화 이력 복원: {history_status}"
     ).send()
 
@@ -289,6 +338,51 @@ async def toggle_streaming(action: cl.Action):
     status = "활성화" if not current else "비활성화"
     await cl.Message(content=f"📡 스트리밍 모드가 **{status}** 되었습니다.").send()
 
+@cl.action_callback("toggle_cross_domain")
+async def toggle_cross_domain(action: cl.Action):
+    """
+    크로스 도메인 설정을 토글하는 액션 콜백입니다.
+
+    '🔀 크로스 도메인 토글' 버튼을 클릭하면 호출됩니다.
+
+    Args:
+        action (cl.Action): 클릭된 액션 버튼 정보
+    """
+    current = cl.user_session.get("allow_cross_domain", True)
+    cl.user_session.set("allow_cross_domain", not current)
+    status = "활성화" if not current else "비활성화"
+    await cl.Message(content=f"🔀 크로스 도메인이 **{status}** 되었습니다.").send()
+
+@cl.action_callback("show_agents")
+async def show_agents(action: cl.Action):
+    """
+    등록된 에이전트 목록을 표시하는 액션 콜백입니다.
+
+    Args:
+        action (cl.Action): 클릭된 액션 버튼 정보
+    """
+    try:
+        response = requests.get(f"{API_BASE_URL}/v2/agents", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            agents = data.get("agents", [])
+
+            content = "🤖 **등록된 도메인 에이전트**\n\n"
+            for agent in agents:
+                domain = agent.get("domain", "unknown")
+                emoji = DOMAIN_EMOJI.get(domain, "❓")
+                desc = agent.get("description", "")
+                tools = agent.get("tools_count", 0)
+                content += f"### {emoji} {domain.upper()}\n"
+                content += f"- 설명: {desc}\n"
+                content += f"- 도구 수: {tools}개\n\n"
+
+            await cl.Message(content=content).send()
+        else:
+            await cl.Message(content="❌ 에이전트 목록을 가져올 수 없습니다.").send()
+    except Exception as e:
+        await cl.Message(content=f"❌ 오류: {str(e)}").send()
+
 @cl.action_callback("reset_session")
 async def reset_session(action: cl.Action):
     """
@@ -322,32 +416,40 @@ async def show_settings(action: cl.Action):
     """
     # 현재 설정값들 조회
     session_id = cl.user_session.get("session_id")
+    preferred_domain = cl.user_session.get("preferred_domain", "auto")
+    allow_cross_domain = cl.user_session.get("allow_cross_domain", True)
     reset_context = cl.user_session.get("reset_context", False)
     use_streaming = cl.user_session.get("use_streaming", True)
     restore_history = cl.user_session.get("restore_history", True)
+
+    domain_display = DOMAIN_OPTIONS.get(preferred_domain, preferred_domain)
 
     # 설정 정보 메시지와 함께 액션 버튼들 표시
     await cl.Message(
         content=f"⚙️ **현재 설정**\n\n"
                 f"- 세션 ID: `{session_id}`\n"
-                f"- 컨텍스트 리셋: {'✅ 활성화' if reset_context else '❌ 비활성화'}\n"
+                f"- 도메인: {domain_display}\n"
+                f"- 크로스 도메인: {'✅ 활성화' if allow_cross_domain else '❌ 비활성화'}\n"
                 f"- 스트리밍 모드: {'✅ 활성화' if use_streaming else '❌ 비활성화'}\n"
+                f"- 컨텍스트 리셋: {'✅ 활성화' if reset_context else '❌ 비활성화'}\n"
                 f"- 대화 이력 복원: {'✅ 활성화' if restore_history else '❌ 비활성화'}",
         # actions 파라미터에 버튼 목록을 전달하면 메시지 하단에 버튼이 렌더링됨
         actions=[
             # name: action_callback 데코레이터의 이름과 일치해야 함
             # value: 콜백 함수에 전달되는 값 (현재는 사용하지 않음)
             # label: 버튼에 표시되는 텍스트
-            cl.Action(name="toggle_reset_context", payload={"action": "toggle_reset"}, label="🔄 컨텍스트 리셋 토글"),
+            cl.Action(name="toggle_cross_domain", payload={"action": "toggle_cross"}, label="🔀 크로스 도메인 토글"),
             cl.Action(name="toggle_streaming", payload={"action": "toggle_stream"}, label="📡 스트리밍 토글"),
             cl.Action(name="reset_session", payload={"action": "reset"}, label="🗑️ 세션 초기화"),
+            cl.Action(name="show_agents", payload={"action": "agents"}, label="🤖 에이전트 목록"),
         ]
     ).send()
 
 # -----------------------------------------------------------------------------
 # 스트리밍 응답 처리 함수
 # -----------------------------------------------------------------------------
-async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Message) -> dict:
+async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Message,
+                          preferred_domain: str = "auto", allow_cross_domain: bool = True) -> dict:
     """
     Server-Sent Events (SSE) 방식으로 스트리밍 응답을 처리합니다.
 
@@ -386,27 +488,34 @@ async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Mess
 
     try:
         # ---------------------------------------------------------------------
-        # API 서버에 스트리밍 요청 전송 (Agent-Only API)
+        # API 서버에 스트리밍 요청 전송 (Multi-Agent v2 API)
         # ---------------------------------------------------------------------
+        request_body = {
+            "query": query,
+            "session_id": session_id,
+            "stream": True,
+            "allow_cross_domain": allow_cross_domain
+        }
+        if preferred_domain != "auto":
+            request_body["preferred_domain"] = preferred_domain
+
         response = requests.post(
-            f"{API_BASE_URL}/agent/query",
-            json={
-                "query": query,           # 사용자 질문
-                "session_id": session_id, # 세션 ID
-                "stream": True            # 스트리밍 모드 활성화
-            },
-            stream=True,  # 응답을 청크 단위로 수신 (SSE용)
-            timeout=120   # 120초 타임아웃 (Agent 응답은 시간이 걸릴 수 있음)
+            f"{API_BASE_URL}/v2/query",
+            json=request_body,
+            stream=True,
+            timeout=120
         )
 
         # ---------------------------------------------------------------------
-        # SSE 이벤트 스트림 처리 (Agent-Only API)
+        # SSE 이벤트 스트림 처리 (Multi-Agent v2 API)
         # ---------------------------------------------------------------------
-        # Agent 스트리밍 이벤트 타입:
+        # v2 스트리밍 이벤트 타입:
+        # - domain_decision: 도메인 라우팅 결과
         # - token: LLM 토큰 청크
         # - tool_call: 도구 호출 정보
         # - tool_result: 도구 실행 결과
-        # - done: 완료 (final_answer, token_usage 포함)
+        # - cross_domain: 크로스 도메인 에이전트 시작
+        # - done: 완료 (domain_decision, agent_results, token_usage)
         tool_calls = []
         tool_results = []
 
@@ -422,7 +531,11 @@ async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Mess
                         data = json.loads(line_str[6:])
 
                         # 이벤트 타입별 처리
-                        if data.get('type') == 'token':
+                        if data.get('type') == 'domain_decision':
+                            # 도메인 라우팅 결과 (스트리밍 초기에 전송됨)
+                            metadata['domain_decision'] = data.get('decision', {})
+
+                        elif data.get('type') == 'token':
                             # 토큰 이벤트: LLM 응답 텍스트의 일부
                             token = data.get('content', '')
                             full_response += token  # 전체 응답에 누적
@@ -442,16 +555,26 @@ async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Mess
                             })
 
                         elif data.get('type') == 'done':
-                            # 완료 이벤트: 최종 답변과 토큰 사용량 포함
+                            # 완료 이벤트: 도메인 결정, 에이전트 결과, 토큰 사용량
                             if 'final_answer' in data and data['final_answer']:
-                                # 스트리밍이 없었으면 final_answer 사용
                                 if not full_response:
                                     full_response = data['final_answer']
                                     await msg.stream_token(full_response)
                             if 'token_usage' in data:
                                 metadata['token_usage'] = data['token_usage']
-                            metadata['tool_calls'] = tool_calls
-                            metadata['tool_results'] = tool_results
+                            if 'domain_decision' in data:
+                                metadata['domain_decision'] = data['domain_decision']
+                            if 'agent_results' in data:
+                                metadata['agent_results'] = data['agent_results']
+                            else:
+                                # agent_results가 없으면 tool_calls/results로 구성
+                                domain = metadata.get('domain_decision', {}).get('primary', 'agent')
+                                metadata['agent_results'] = {
+                                    domain: {
+                                        'tool_calls': tool_calls,
+                                        'tool_results': tool_results
+                                    }
+                                }
                             break
 
                         elif data.get('type') == 'error':
@@ -476,12 +599,18 @@ async def stream_response(query: str, session_id: str, reset: bool, msg: cl.Mess
 
     # 전체 응답을 메타데이터에 추가하여 반환
     metadata['answer'] = full_response
+    # agent_results가 없으면 빈 딕셔너리로 초기화
+    if 'agent_results' not in metadata:
+        metadata['agent_results'] = {}
+    if 'domain_decision' not in metadata:
+        metadata['domain_decision'] = {}
     return metadata
 
 # -----------------------------------------------------------------------------
 # 일반 (Non-Streaming) 응답 처리 함수
 # -----------------------------------------------------------------------------
-async def get_response(query: str, session_id: str, reset: bool) -> dict:
+async def get_response(query: str, session_id: str, reset: bool,
+                       preferred_domain: str = "auto", allow_cross_domain: bool = True) -> dict:
     """
     일반(non-streaming) 방식으로 API 응답을 처리합니다.
 
@@ -492,12 +621,15 @@ async def get_response(query: str, session_id: str, reset: bool) -> dict:
         query (str): 사용자의 질문 텍스트
         session_id (str): 현재 세션 식별자
         reset (bool): 컨텍스트 리셋 여부
+        preferred_domain (str): 선호 도메인 (auto/tms/wms/fms/tap)
+        allow_cross_domain (bool): 크로스 도메인 허용 여부
 
     Returns:
         dict: API 응답 데이터
               - answer: 응답 텍스트
-              - cypher: 생성된 Cypher 쿼리
-              - context: 검색된 컨텍스트 데이터
+              - domain_decision: 도메인 라우팅 결정
+              - agent_results: 도메인별 에이전트 결과
+              - token_usage: 토큰 사용량
               오류 발생 시 answer에 오류 메시지 포함
 
     Notes:
@@ -505,14 +637,20 @@ async def get_response(query: str, session_id: str, reset: bool) -> dict:
         - 네트워크 상태가 불안정한 경우 더 안정적일 수 있음
     """
     try:
-        # API 서버에 쿼리 요청 전송 (Agent-Only API)
+        # API 서버에 쿼리 요청 전송 (Multi-Agent v2 API)
+        request_body = {
+            "query": query,
+            "session_id": session_id,
+            "stream": False,  # 스트리밍 비활성화
+            "allow_cross_domain": allow_cross_domain
+        }
+        # preferred_domain이 auto가 아니면 추가
+        if preferred_domain != "auto":
+            request_body["preferred_domain"] = preferred_domain
+
         response = requests.post(
-            f"{API_BASE_URL}/agent/query",
-            json={
-                "query": query,
-                "session_id": session_id,
-                "stream": False  # 스트리밍 비활성화
-            },
+            f"{API_BASE_URL}/v2/query",
+            json=request_body,
             timeout=120  # Agent 응답 대기를 위한 충분한 타임아웃
         )
 
@@ -523,23 +661,23 @@ async def get_response(query: str, session_id: str, reset: bool) -> dict:
             # HTTP 오류 (4xx, 5xx)
             return {
                 "answer": f"❌ 오류: HTTP {response.status_code}",
-                "cypher": "",
-                "context": []
+                "domain_decision": {},
+                "agent_results": {}
             }
 
     except requests.exceptions.ConnectionError:
         # 서버 연결 불가
         return {
             "answer": "❌ API 서버에 연결할 수 없습니다.",
-            "cypher": "",
-            "context": []
+            "domain_decision": {},
+            "agent_results": {}
         }
     except Exception as e:
         # 기타 예외
         return {
             "answer": f"❌ 오류가 발생했습니다: {str(e)}",
-            "cypher": "",
-            "context": []
+            "domain_decision": {},
+            "agent_results": {}
         }
 
 # -----------------------------------------------------------------------------
@@ -581,14 +719,25 @@ async def on_message(message: cl.Message):
         await reset_session(None)
         return
 
+    # 에이전트 목록 명령어
+    if query.lower() in ["/agents", "/에이전트", "에이전트"]:
+        await show_agents(None)
+        return
+
     # 도움말 명령어
     if query.lower() in ["/help", "/도움말", "도움말"]:
         await cl.Message(
             content="📖 **사용 가능한 명령어**\n\n"
                     "- `/settings` 또는 `설정` - 현재 설정 보기\n"
+                    "- `/agents` 또는 `에이전트` - 등록된 에이전트 목록\n"
                     "- `/reset` 또는 `초기화` - 세션 초기화\n"
                     "- `/help` 또는 `도움말` - 도움말 보기\n\n"
-                    "영화에 대해 자유롭게 질문하세요!"
+                    "**도메인 에이전트:**\n"
+                    "- 🚚 TMS: 배송, 배차, 운송 관련 질문\n"
+                    "- 📦 WMS: 창고, 재고, 입출고 관련 질문\n"
+                    "- 🔧 FMS: 차량, 정비, 운전자 관련 질문\n"
+                    "- 📱 TAP: 호출, ETA, 예약 관련 질문\n\n"
+                    "물류 관련 질문을 자유롭게 해보세요!"
         ).send()
         return
 
@@ -599,6 +748,8 @@ async def on_message(message: cl.Message):
     session_id = cl.user_session.get("session_id")
     reset_context = cl.user_session.get("reset_context", False)
     use_streaming = cl.user_session.get("use_streaming", True)
+    preferred_domain = cl.user_session.get("preferred_domain", "auto")
+    allow_cross_domain = cl.user_session.get("allow_cross_domain", True)
 
     # 빈 응답 메시지 객체 생성 및 전송
     # 스트리밍 모드에서는 이 메시지에 토큰이 점진적으로 추가됨
@@ -610,33 +761,41 @@ async def on_message(message: cl.Message):
     # -------------------------------------------------------------------------
     if use_streaming:
         # 스트리밍 모드: 토큰 단위로 실시간 표시
-        result = await stream_response(query, session_id, reset_context, msg)
+        result = await stream_response(query, session_id, reset_context, msg,
+                                       preferred_domain, allow_cross_domain)
     else:
         # 일반 모드: 전체 응답을 한 번에 표시
-        result = await get_response(query, session_id, reset_context)
+        result = await get_response(query, session_id, reset_context,
+                                    preferred_domain, allow_cross_domain)
         msg.content = result.get("answer", "")
         await msg.update()  # 메시지 내용 업데이트
 
     # -------------------------------------------------------------------------
-    # 메타데이터 표시 (Agent: Cypher, tool_calls, iterations, Token Usage)
+    # 메타데이터 표시 (Domain Routing, Agent Results, Token Usage)
     # -------------------------------------------------------------------------
-    thoughts = result.get("thoughts", [])
-    tool_calls = result.get("tool_calls", [])
-    tool_results = result.get("tool_results", [])
-    iterations = result.get("iterations", 0)
+    domain_decision = result.get("domain_decision", {})
+    agent_results = result.get("agent_results", {})
     token_usage = result.get("token_usage")
+
+    # agent_results에서 tool_calls 추출
+    tool_calls = []
+    tool_results = []
+    iterations = 0
+    for domain, agent_result in agent_results.items():
+        if isinstance(agent_result, dict):
+            tool_calls.extend(agent_result.get("tool_calls", []))
+            tool_results.extend(agent_result.get("tool_results", []))
+            iterations = max(iterations, agent_result.get("iterations", 0))
 
     # tool_results에서 Cypher Query 추출
     cypher_queries = []
     for tr in tool_results:
-        result_text = tr.get("result", "")
+        result_text = tr.get("result", "") if isinstance(tr, dict) else str(tr)
         if "Cypher Query:" in result_text:
             # "Cypher Query: cypher\nMATCH..." 형식에서 쿼리 추출
-            # Cypher Query: 이후의 모든 내용을 추출
             parts = result_text.split("Cypher Query:")
             if len(parts) > 1:
                 cypher_part = parts[1].strip()
-                # "cypher" 언어 식별자 제거 (첫 줄이 "cypher"인 경우)
                 lines = cypher_part.split("\n")
                 if lines and lines[0].strip().lower() == "cypher":
                     cypher = "\n".join(lines[1:]).strip()
@@ -645,15 +804,34 @@ async def on_message(message: cl.Message):
                 if cypher:
                     cypher_queries.append(cypher)
 
-    # Agent 메타데이터가 있는 경우 상세 정보 표시
-    if thoughts or tool_calls or token_usage or cypher_queries:
-        # Chainlit 2.x에서는 마크다운으로 직접 표시
-        details_content = "🔍 **Agent 상세 정보**\n\n"
+    # 메타데이터가 있는 경우 상세 정보 표시
+    if domain_decision or tool_calls or token_usage or cypher_queries:
+        details_content = "🔍 **에이전트 상세 정보**\n\n"
+
+        # 도메인 라우팅 정보 표시
+        if domain_decision:
+            primary = domain_decision.get("primary", "unknown")
+            secondary = domain_decision.get("secondary", [])
+            confidence = domain_decision.get("confidence", 0)
+            reasoning = domain_decision.get("reasoning", "")
+            is_cross = domain_decision.get("cross_domain", False)
+
+            emoji = DOMAIN_EMOJI.get(primary, "❓")
+            details_content += f"**도메인 라우팅:**\n"
+            details_content += f"- 주 도메인: {emoji} **{primary.upper()}** (신뢰도: {confidence:.0%})\n"
+            if secondary:
+                sec_str = ", ".join([f"{DOMAIN_EMOJI.get(s, '❓')} {s.upper()}" for s in secondary])
+                details_content += f"- 보조 도메인: {sec_str}\n"
+            if is_cross:
+                details_content += f"- 🔀 크로스 도메인 쿼리\n"
+            if reasoning:
+                details_content += f"- 이유: {reasoning}\n"
+            details_content += "\n"
 
         if iterations:
             details_content += f"**Iterations:** {iterations}\n\n"
 
-        # Cypher Query 표시 (가장 중요한 정보)
+        # Cypher Query 표시
         if cypher_queries:
             details_content += "**Cypher Query:**\n```cypher\n"
             for cq in cypher_queries:
@@ -688,6 +866,7 @@ async def on_message(message: cl.Message):
             content=details_content,
             actions=[
                 cl.Action(name="show_settings", payload={"action": "settings"}, label="⚙️ 설정"),
+                cl.Action(name="show_agents", payload={"action": "agents"}, label="🤖 에이전트"),
             ]
         ).send()
 

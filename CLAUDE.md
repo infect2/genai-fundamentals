@@ -267,11 +267,12 @@ docker run -p 8000:8000 \
 genai-fundamentals/
 ├── api/                        # REST API, MCP, A2A 서버
 │   ├── __init__.py
-│   ├── server.py               # FastAPI endpoints
+│   ├── server.py               # FastAPI endpoints (v1 + v2)
 │   ├── graphrag_service.py     # GraphRAG 오케스트레이션 (세션, 쿼리 라우팅)
 │   ├── models.py               # 데이터 클래스 (TokenUsage, QueryResult)
 │   ├── prompts.py              # 프롬프트 템플릿 모음
 │   ├── router.py               # Query Router (쿼리 분류 및 라우팅)
+│   ├── config.py               # 중앙 설정 (AppConfig, MultiAgentConfig)
 │   ├── mcp_server.py           # MCP (Model Context Protocol) server
 │   ├── a2a_server.py           # A2A (Agent2Agent) Protocol server
 │   ├── pipelines/              # 라우트별 RAG 파이프라인
@@ -282,13 +283,37 @@ genai-fundamentals/
 │   │   ├── hybrid.py           # Hybrid RAG (Vector + Cypher)
 │   │   ├── llm_only.py         # LLM Only (직접 응답)
 │   │   └── memory.py           # Memory (사용자 정보 저장/조회)
-│   ├── agent/                  # ReAct Agent (LangGraph 기반)
+│   ├── agent/                  # ReAct Agent (LangGraph 기반) - 단일 에이전트
 │   │   ├── __init__.py
 │   │   ├── graph.py            # LangGraph StateGraph 정의
 │   │   ├── state.py            # AgentState TypedDict
 │   │   ├── tools.py            # Agent 도구 정의
 │   │   ├── prompts.py          # ReAct 시스템 프롬프트
 │   │   └── service.py          # AgentService 클래스
+│   ├── multi_agents/           # 멀티 에이전트 시스템 (v2)
+│   │   ├── __init__.py         # 모듈 exports
+│   │   ├── base.py             # BaseDomainAgent 추상 클래스
+│   │   ├── registry.py         # AgentRegistry (에이전트 등록/조회)
+│   │   ├── graph_factory.py    # 도메인 에이전트 그래프 팩토리
+│   │   ├── orchestrator/       # Master Orchestrator
+│   │   │   ├── router.py       # DomainRouter (도메인 라우팅)
+│   │   │   ├── state.py        # OrchestratorState
+│   │   │   ├── service.py      # OrchestratorService
+│   │   │   └── prompts.py      # 의도 분석 프롬프트
+│   │   ├── tms/                # TMS 도메인 에이전트
+│   │   │   ├── agent.py        # TMSAgent 클래스
+│   │   │   ├── tools.py        # TMS 전용 도구
+│   │   │   └── prompts.py      # TMS 시스템 프롬프트
+│   │   ├── wms/                # WMS 도메인 에이전트
+│   │   ├── fms/                # FMS 도메인 에이전트
+│   │   └── tap/                # TAP! 도메인 에이전트
+│   ├── ontology/               # 통합 온톨로지
+│   │   ├── __init__.py
+│   │   ├── upper.py            # 상위 온톨로지 (Asset, Participant, Location)
+│   │   ├── tms_schema.py       # TMS TBox
+│   │   ├── wms_schema.py       # WMS TBox
+│   │   ├── fms_schema.py       # FMS TBox
+│   │   └── tap_schema.py       # TAP! TBox
 │   └── logging/                # Elasticsearch 로깅
 │       ├── __init__.py         # 모듈 exports
 │       ├── config.py           # ES 클라이언트 설정
@@ -628,6 +653,160 @@ pytest genai-fundamentals/tests/test_agent.py -v -k "integration"
 ### 무한 루프 방지
 
 `MAX_ITERATIONS = 10`으로 설정되어 있어 최대 10번의 reasoning loop 후 강제 종료됩니다.
+
+## Multi-Agent System (v2)
+
+WMS, TMS, FMS, TAP! 서비스를 위한 연합형 멀티 에이전트 시스템입니다.
+도메인별 전문 에이전트와 Master Orchestrator가 협력하여 복잡한 쿼리를 처리합니다.
+
+### 아키텍처
+
+```
+사용자 쿼리
+    ↓
+┌─────────────────────────────────────────────────────┐
+│              Master Orchestrator                     │
+│  ┌──────────────────────────────────────────────┐   │
+│  │           Domain Router                       │   │
+│  │   쿼리 분석 → 도메인 선택 (WMS/TMS/FMS/TAP)    │   │
+│  └──────────────────────────────────────────────┘   │
+│       ↓ (single domain)    ↓ (cross-domain)         │
+│  ┌─────────┐         ┌─────────┐  ┌─────────┐       │
+│  │  Agent  │         │ Agent A │→ │ Agent B │       │
+│  │ (단일)  │         │ (병렬/순차 실행)         │       │
+│  └─────────┘         └─────────┘  └─────────┘       │
+│       ↓                     ↓                        │
+│  ┌──────────────────────────────────────────────┐   │
+│  │           Response Synthesizer                │   │
+│  │         (결과 통합 & 최종 응답 생성)           │   │
+│  └──────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────┘
+    ↓
+최종 답변
+```
+
+### 도메인 에이전트
+
+| 도메인 | 설명 | 주요 도구 |
+|--------|------|----------|
+| **WMS** | 창고 관리 시스템 | inventory_query, location_search, utilization |
+| **TMS** | 운송 관리 시스템 | shipment_status, carrier_search, dispatch_query |
+| **FMS** | 차량 관리 시스템 | vehicle_status, maintenance_schedule, driver_info |
+| **TAP!** | 사용자 호출 서비스 | call_status, eta_query, booking_status |
+
+### v2 API 엔드포인트
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v2/query` | 멀티 에이전트 쿼리 실행 (자동 도메인 라우팅) |
+| GET | `/v2/agents` | 등록된 도메인 에이전트 목록 |
+| GET | `/v2/agents/{domain}/schema` | 도메인별 온톨로지 스키마 |
+
+### v2 Request Format
+
+```json
+{
+  "query": "배송 현황 알려줘",
+  "session_id": "user123",
+  "preferred_domain": "auto",      // auto | wms | tms | fms | tap
+  "allow_cross_domain": true       // 크로스 도메인 허용 여부
+}
+```
+
+### v2 Response Format
+
+```json
+{
+  "answer": "현재 운송 중인 배송이 5건 있습니다...",
+  "domain_decision": {
+    "primary": "tms",
+    "secondary": [],
+    "confidence": 0.95,
+    "reasoning": "배송 현황 조회 요청으로 TMS 도메인이 적합합니다.",
+    "cross_domain": false
+  },
+  "agent_results": {
+    "tms": {
+      "answer": "...",
+      "thoughts": [...],
+      "tool_calls": [...],
+      "iterations": 2
+    }
+  },
+  "token_usage": {
+    "total_tokens": 1500,
+    "total_cost": 0.0075
+  }
+}
+```
+
+### 크로스 도메인 예시
+
+```bash
+# 정비 중인 차량을 배차에서 제외
+curl -X POST http://localhost:8000/v2/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "정비 중인 차량을 오늘 배차에서 제외해줘",
+    "allow_cross_domain": true
+  }'
+
+# 응답:
+# - FMS Agent: 정비 중인 차량 목록 조회 (차량A, 차량B, 차량C)
+# - TMS Agent: 해당 차량 배차에서 제외 처리
+# - 통합 응답: "FMS에서 정비 중인 차량 3대를 TMS 배차에서 제외했습니다."
+```
+
+### 도메인 라우팅 키워드
+
+| 도메인 | 키워드 |
+|--------|--------|
+| WMS | 창고, 재고, 적재, 입고, 출고, 보관, 피킹 |
+| TMS | 배송, 배차, 운송, 운송사, 화주, 경로, 픽업 |
+| FMS | 차량, 정비, 소모품, 운전자, 연비, 타이어 |
+| TAP! | 호출, 예약, ETA, 결제, 피드백, 내 택배 |
+
+### 테스트
+
+```bash
+# 도메인 라우터 테스트
+pytest genai-fundamentals/tests/test_domain_router.py -v
+
+# 도메인 에이전트 테스트
+pytest genai-fundamentals/tests/test_domain_agents.py -v
+```
+
+### 주요 파일
+
+| 파일 | 설명 |
+|------|------|
+| `api/multi_agents/base.py` | BaseDomainAgent 추상 클래스 |
+| `api/multi_agents/registry.py` | AgentRegistry (에이전트 등록/조회) |
+| `api/multi_agents/orchestrator/router.py` | DomainRouter (도메인 라우팅) |
+| `api/multi_agents/orchestrator/service.py` | OrchestratorService (오케스트레이션) |
+| `api/multi_agents/tms/agent.py` | TMSAgent 클래스 |
+| `api/ontology/upper.py` | 상위 온톨로지 (공유 개념) |
+| `api/ontology/tms_schema.py` | TMS 도메인 스키마 |
+
+### 설정
+
+```python
+# api/config.py
+@dataclass
+class MultiAgentConfig:
+    orchestrator_enabled: bool = True
+    cross_domain_enabled: bool = True
+    max_cross_domain_agents: int = 3
+    routing_confidence_threshold: float = 0.7
+```
+
+환경변수:
+```bash
+MULTI_AGENT_ORCHESTRATOR_ENABLED=true
+MULTI_AGENT_CROSS_DOMAIN_ENABLED=true
+MULTI_AGENT_MAX_CROSS_DOMAIN=3
+MULTI_AGENT_ROUTING_THRESHOLD=0.7
+```
 
 ### Multi-Turn Conversation (대화 컨텍스트 유지)
 

@@ -1,8 +1,8 @@
 """
-Capora AI Ontology Bot - REST API Server (Agent-Only)
+Capora AI Ontology Bot - REST API Server (Agent-Only + Multi-Agent v2)
 
 FastAPI 기반의 REST API 서버입니다.
-모든 쿼리는 ReAct Agent를 통해 처리됩니다.
+기존 단일 에이전트 API와 멀티 에이전트 v2 API를 모두 제공합니다.
 
 엔드포인트:
 - GET  /              : 서버 상태 확인
@@ -10,6 +10,11 @@ FastAPI 기반의 REST API 서버입니다.
 - POST /reset/{id}    : 세션 컨텍스트 리셋
 - GET  /sessions      : 활성 세션 목록
 - GET  /history/{id}  : 대화 이력 조회
+
+v2 엔드포인트 (멀티 에이전트):
+- POST /v2/query      : 멀티 에이전트 쿼리 실행 (도메인 자동 라우팅)
+- GET  /v2/agents     : 등록된 도메인 에이전트 목록
+- GET  /v2/agents/{domain}/schema : 도메인별 온톨로지 스키마
 
 실행 방법:
     python -m genai-fundamentals.api.server
@@ -28,6 +33,10 @@ from typing import Optional
 from .graphrag_service import GraphRAGService, get_service
 from .agent import AgentService
 
+# 멀티 에이전트 모듈 임포트
+from .multi_agents import get_registry, DomainType
+from .multi_agents.orchestrator import OrchestratorService, get_orchestrator
+
 # Elasticsearch 로깅 모듈 임포트
 from .logging import ElasticsearchLoggingMiddleware, log_agent_response, ES_ENABLED
 
@@ -45,22 +54,69 @@ app = FastAPI(
 # Elasticsearch 로깅 미들웨어 등록
 app.add_middleware(ElasticsearchLoggingMiddleware)
 
-# Ontology 서비스 인스턴스 (싱글톤)
+# 서비스 인스턴스 (싱글톤)
 service: GraphRAGService = None
 agent_service: AgentService = None
+orchestrator_service: OrchestratorService = None
 
 
 @app.on_event("startup")
 async def startup_event():
     """
-    서버 시작 시 Ontology 서비스 초기화
+    서버 시작 시 서비스 초기화
 
     FastAPI의 lifespan 이벤트를 사용해 서버 시작 시
     한 번만 서비스를 초기화합니다.
     """
-    global service, agent_service
+    global service, agent_service, orchestrator_service
     service = get_service()
     agent_service = AgentService(service)
+
+    # 멀티 에이전트 시스템 초기화
+    _initialize_multi_agent_system()
+    orchestrator_service = get_orchestrator(graphrag_service=service)
+
+
+def _initialize_multi_agent_system():
+    """
+    멀티 에이전트 시스템 초기화
+
+    도메인 에이전트들을 레지스트리에 등록합니다.
+    """
+    registry = get_registry()
+
+    # TMS Agent 등록
+    try:
+        from .multi_agents.tms import TMSAgent
+        tms_agent = TMSAgent(graphrag_service=service)
+        registry.register(tms_agent)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to register TMS agent: {e}")
+
+    # WMS Agent 등록 (구현 시)
+    try:
+        from .multi_agents.wms import WMSAgent
+        wms_agent = WMSAgent(graphrag_service=service)
+        registry.register(wms_agent)
+    except (ImportError, Exception):
+        pass  # 아직 구현되지 않음
+
+    # FMS Agent 등록 (구현 시)
+    try:
+        from .multi_agents.fms import FMSAgent
+        fms_agent = FMSAgent(graphrag_service=service)
+        registry.register(fms_agent)
+    except (ImportError, Exception):
+        pass
+
+    # TAP Agent 등록 (구현 시)
+    try:
+        from .multi_agents.tap import TAPAgent
+        tap_agent = TAPAgent(graphrag_service=service)
+        registry.register(tap_agent)
+    except (ImportError, Exception):
+        pass
 
 
 # =============================================================================
@@ -115,6 +171,61 @@ class AgentQueryResponse(BaseModel):
     tool_results: list
     iterations: int
     token_usage: Optional[TokenUsageResponse] = None
+
+
+# =============================================================================
+# v2 Request/Response 모델 (멀티 에이전트)
+# =============================================================================
+
+class MultiAgentQueryRequest(BaseModel):
+    """
+    /v2/query 엔드포인트 요청 모델
+
+    Attributes:
+        query: 사용자 질문 (필수)
+        session_id: 세션 ID (선택, 기본값: "default")
+        preferred_domain: 선호 도메인 ("auto"면 자동 라우팅)
+        allow_cross_domain: 크로스 도메인 처리 허용 여부
+        stream: 스트리밍 응답 여부
+    """
+    query: str
+    session_id: Optional[str] = "default"
+    preferred_domain: str = "auto"
+    allow_cross_domain: bool = True
+    stream: bool = False
+
+
+class DomainDecisionResponse(BaseModel):
+    """도메인 라우팅 결정 응답 모델"""
+    primary: str
+    secondary: list
+    confidence: float
+    reasoning: str
+    cross_domain: bool
+
+
+class MultiAgentQueryResponse(BaseModel):
+    """
+    /v2/query 엔드포인트 응답 모델
+
+    Attributes:
+        answer: 통합된 최종 답변
+        domain_decision: 도메인 라우팅 결정
+        agent_results: 도메인별 실행 결과
+        token_usage: 총 토큰 사용량
+    """
+    answer: str
+    domain_decision: DomainDecisionResponse
+    agent_results: dict
+    token_usage: Optional[TokenUsageResponse] = None
+
+
+class AgentInfoResponse(BaseModel):
+    """에이전트 정보 응답 모델"""
+    domain: str
+    description: str
+    tools_count: int
+    keywords: list
 
 
 # =============================================================================
@@ -294,6 +405,116 @@ async def agent_query(request: AgentQueryRequest, req: Request):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# v2 엔드포인트 (멀티 에이전트)
+# =============================================================================
+
+@app.post("/v2/query")
+async def multi_agent_query(request: MultiAgentQueryRequest, req: Request):
+    """
+    멀티 에이전트 쿼리 처리 엔드포인트 (v2)
+
+    사용자 쿼리를 분석하여 적합한 도메인 에이전트로 라우팅하고,
+    단일/크로스 도메인 쿼리를 처리합니다.
+
+    스트리밍 여부에 따라 응답 형식이 달라집니다:
+    - stream=False: JSON 응답 (MultiAgentQueryResponse)
+    - stream=True: SSE 스트리밍 응답 (domain_decision → token → done)
+
+    Args:
+        request: MultiAgentQueryRequest 객체
+        req: FastAPI Request 객체
+
+    Returns:
+        MultiAgentQueryResponse 또는 StreamingResponse
+
+    Raises:
+        HTTPException: 처리 중 오류 발생 시 500 에러
+    """
+    try:
+        if request.stream:
+            # 스트리밍 응답: Server-Sent Events (SSE)
+            return StreamingResponse(
+                orchestrator_service.query_stream(
+                    query_text=request.query,
+                    session_id=request.session_id,
+                    preferred_domain=request.preferred_domain,
+                    allow_cross_domain=request.allow_cross_domain
+                ),
+                media_type="text/event-stream"
+            )
+        else:
+            # 비스트리밍 응답: JSON
+            result = await orchestrator_service.query_async(
+                query_text=request.query,
+                session_id=request.session_id,
+                preferred_domain=request.preferred_domain,
+                allow_cross_domain=request.allow_cross_domain
+            )
+
+            token_usage = None
+            if result.token_usage:
+                token_usage = TokenUsageResponse(
+                    total_tokens=result.token_usage.total_tokens,
+                    prompt_tokens=result.token_usage.prompt_tokens,
+                    completion_tokens=result.token_usage.completion_tokens,
+                    total_cost=result.token_usage.total_cost
+                )
+
+            return MultiAgentQueryResponse(
+                answer=result.answer,
+                domain_decision=DomainDecisionResponse(**result.domain_decision),
+                agent_results=result.agent_results,
+                token_usage=token_usage
+            )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v2/agents")
+def list_agents():
+    """
+    등록된 도메인 에이전트 목록 조회 엔드포인트
+
+    Returns:
+        에이전트 정보 목록 (도메인, 설명, 도구 수, 키워드)
+    """
+    registry = get_registry()
+    agents_info = registry.get_agent_info()
+    return {
+        "agents": agents_info,
+        "count": len(agents_info)
+    }
+
+
+@app.get("/v2/agents/{domain}/schema")
+def get_domain_schema(domain: str):
+    """
+    특정 도메인의 온톨로지 스키마 조회 엔드포인트
+
+    Args:
+        domain: 도메인 이름 (wms, tms, fms, tap)
+
+    Returns:
+        도메인 스키마 정보
+
+    Raises:
+        HTTPException: 도메인을 찾을 수 없는 경우 404 에러
+    """
+    registry = get_registry()
+    agent = registry.get_by_name(domain)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Domain '{domain}' not found")
+
+    return {
+        "domain": domain,
+        "schema": agent.get_schema_subset(),
+        "description": agent.description
+    }
 
 
 # =============================================================================

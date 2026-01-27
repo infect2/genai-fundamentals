@@ -373,6 +373,32 @@ class GraphRAGService:
         """
         return self._graph.schema
 
+    def execute_cypher(self, cypher: str, params: Optional[dict] = None) -> List[dict]:
+        """
+        Cypher 쿼리를 직접 실행
+
+        도메인 에이전트가 구조화된 Cypher 쿼리를 직접 실행할 때 사용합니다.
+
+        Args:
+            cypher: 실행할 Cypher 쿼리
+            params: 쿼리 파라미터 (옵션)
+
+        Returns:
+            쿼리 결과 딕셔너리 리스트
+
+        Security Note:
+            - 읽기 전용 쿼리만 허용 (Neo4j 사용자 권한으로 제어)
+            - 파라미터화된 쿼리 사용 권장 (SQL Injection 방지)
+        """
+        try:
+            result = self._graph.query(cypher, params or {})
+            return result
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Cypher execution error: {e}")
+            return []
+
     # -------------------------------------------------------------------------
     # 쿼리 실행 메서드
     # -------------------------------------------------------------------------

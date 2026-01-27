@@ -24,6 +24,7 @@ _tms_mod = importlib.import_module("genai-fundamentals.api.multi_agents.tms")
 _wms_mod = importlib.import_module("genai-fundamentals.api.multi_agents.wms")
 _fms_mod = importlib.import_module("genai-fundamentals.api.multi_agents.fms")
 _tap_mod = importlib.import_module("genai-fundamentals.api.multi_agents.tap")
+_memory_mod = importlib.import_module("genai-fundamentals.api.multi_agents.memory")
 
 BaseDomainAgent = _base_mod.BaseDomainAgent
 DomainType = _base_mod.DomainType
@@ -35,6 +36,7 @@ TMSAgent = _tms_mod.TMSAgent
 WMSAgent = _wms_mod.WMSAgent
 FMSAgent = _fms_mod.FMSAgent
 TAPAgent = _tap_mod.TAPAgent
+MemoryAgent = _memory_mod.MemoryAgent
 
 
 class TestAgentRegistry:
@@ -214,6 +216,76 @@ class TestTAPAgent:
         tools = self.agent.get_tools()
         tool_names = [t.name for t in tools]
         assert "tap_call_status" in tool_names
+
+
+class TestMemoryAgent:
+    """Memory 에이전트 테스트"""
+
+    def setup_method(self):
+        self.mock_service = Mock()
+        self.agent = MemoryAgent(graphrag_service=self.mock_service)
+
+    def test_domain(self):
+        """도메인 타입 확인"""
+        assert self.agent.domain == DomainType.MEMORY
+
+    def test_description(self):
+        """설명 확인"""
+        assert "저장" in self.agent.description or "조회" in self.agent.description
+
+    def test_keywords(self):
+        """키워드 확인"""
+        keywords = self.agent.get_keywords()
+        assert "기억" in keywords
+        assert "저장" in keywords
+        assert "remember" in keywords
+        assert "recall" in keywords
+
+    def test_system_prompt(self):
+        """시스템 프롬프트 확인"""
+        prompt = self.agent.get_system_prompt()
+        assert "저장" in prompt
+        assert "조회" in prompt
+
+    def test_schema_subset(self):
+        """스키마 확인"""
+        schema = self.agent.get_schema_subset()
+        assert "UserMemory" in schema
+        assert "session_id" in schema
+
+    def test_get_tools(self):
+        """도구 생성 확인"""
+        tools = self.agent.get_tools()
+        assert len(tools) == 3
+        tool_names = [t.name for t in tools]
+        assert "store_memory" in tool_names
+        assert "recall_memory" in tool_names
+        assert "list_memories" in tool_names
+
+    def test_is_relevant_query(self):
+        """관련 쿼리 판별"""
+        assert MemoryAgent.is_relevant_query("내 차번호 기억해")
+        assert MemoryAgent.is_relevant_query("remember my email")
+        assert MemoryAgent.is_relevant_query("내 정보 보여줘")
+        assert not MemoryAgent.is_relevant_query("배송 현황")
+
+    def test_tools_without_service(self):
+        """서비스 없이 도구 생성 시 빈 리스트 반환"""
+        agent = MemoryAgent(graphrag_service=None)
+        tools = agent.get_tools()
+        assert tools == []
+
+    def test_registry_registration(self):
+        """레지스트리 등록"""
+        reset_registry()
+        registry = get_registry()
+        registry.register(self.agent)
+
+        assert registry.has_domain(DomainType.MEMORY)
+        retrieved = registry.get(DomainType.MEMORY)
+        assert retrieved is not None
+        assert retrieved.domain == DomainType.MEMORY
+        reset_registry()
 
 
 class TestDomainAgentResult:

@@ -81,6 +81,18 @@ class TestDomainRouterKeywords:
             decision = self.router.route(query)
             assert decision.domain == DomainType.TAP, f"Failed for query: {query}"
 
+    def test_memory_keywords(self):
+        """Memory 도메인 키워드 라우팅"""
+        queries = [
+            "내 차번호 기억해",
+            "내 이메일 저장해줘",
+            "내 정보 보여줘",
+            "remember my phone number",
+        ]
+        for query in queries:
+            decision = self.router.route(query)
+            assert decision.domain == DomainType.MEMORY, f"Failed for query: {query}"
+
     def test_force_domain(self):
         """강제 도메인 지정"""
         decision = self.router.route("아무 질문", force_domain="wms")

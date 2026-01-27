@@ -17,13 +17,16 @@ from .config import (
     get_es_client,
     get_index_name,
 )
-from .middleware import ElasticsearchLoggingMiddleware, log_agent_response
+from .middleware import ElasticsearchLoggingMiddleware, log_agent_response, log_multi_agent_response
 from .schemas import (
     LogEvent,
     HttpInfo,
     RequestInfo,
     ResponseInfo,
     AgentInfo,
+    MultiAgentInfo,
+    DomainDecisionInfo,
+    DomainAgentInfo,
     TokenUsageInfo,
     ClientInfo,
 )
@@ -39,12 +42,16 @@ __all__ = [
     # Middleware
     "ElasticsearchLoggingMiddleware",
     "log_agent_response",
+    "log_multi_agent_response",
     # Schemas
     "LogEvent",
     "HttpInfo",
     "RequestInfo",
     "ResponseInfo",
     "AgentInfo",
+    "MultiAgentInfo",
+    "DomainDecisionInfo",
+    "DomainAgentInfo",
     "TokenUsageInfo",
     "ClientInfo",
 ]

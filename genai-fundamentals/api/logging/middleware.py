@@ -32,6 +32,9 @@ from .schemas import (
     RequestInfo,
     ResponseInfo,
     AgentInfo,
+    MultiAgentInfo,
+    DomainDecisionInfo,
+    DomainAgentInfo,
     TokenUsageInfo,
     ClientInfo,
 )
@@ -129,6 +132,119 @@ async def log_agent_response(
             ip=request.client.host if request.client else "unknown",
             user_agent=request.headers.get("user-agent", "")
         )
+    )
+
+    await log_to_elasticsearch(log_event)
+
+
+async def log_multi_agent_response(
+    request_id: str,
+    request: Request,
+    query: str,
+    session_id: str,
+    stream: bool,
+    result: Any,
+    duration_ms: float
+):
+    """
+    멀티 에이전트 쿼리 응답을 상세하게 로깅
+
+    /v2/query 엔드포인트의 응답을 Elasticsearch에 로깅합니다.
+    도메인 라우팅 결정, 도메인별 에이전트 실행 결과, 토큰 사용량을 포함합니다.
+
+    Args:
+        request_id: 요청 추적 ID
+        request: FastAPI Request 객체
+        query: 사용자 질문
+        session_id: 세션 ID
+        stream: 스트리밍 여부
+        result: MultiAgentResult 객체
+        duration_ms: 처리 시간 (밀리초)
+    """
+    if not ES_ENABLED:
+        return
+
+    # 도메인 라우팅 결정 정보
+    domain_decision_info = None
+    if hasattr(result, 'domain_decision') and result.domain_decision:
+        dd = result.domain_decision
+        domain_decision_info = DomainDecisionInfo(
+            primary=dd.get("primary", "unknown") if isinstance(dd, dict) else getattr(dd, "primary", "unknown"),
+            secondary=dd.get("secondary", []) if isinstance(dd, dict) else getattr(dd, "secondary", []),
+            confidence=dd.get("confidence", 0.0) if isinstance(dd, dict) else getattr(dd, "confidence", 0.0),
+            reasoning=dd.get("reasoning", "") if isinstance(dd, dict) else getattr(dd, "reasoning", ""),
+            cross_domain=dd.get("cross_domain", False) if isinstance(dd, dict) else getattr(dd, "cross_domain", False),
+        )
+
+    # 도메인별 에이전트 결과
+    agent_results_list = []
+    if hasattr(result, 'agent_results') and result.agent_results:
+        for domain, agent_result in result.agent_results.items():
+            if isinstance(agent_result, dict):
+                token_usage = agent_result.get("token_usage")
+                tu_info = None
+                if token_usage and isinstance(token_usage, dict):
+                    tu_info = TokenUsageInfo(
+                        total_tokens=token_usage.get("total_tokens", 0),
+                        prompt_tokens=token_usage.get("prompt_tokens", 0),
+                        completion_tokens=token_usage.get("completion_tokens", 0),
+                        total_cost=token_usage.get("total_cost", 0.0),
+                    )
+                agent_results_list.append(DomainAgentInfo(
+                    domain=domain,
+                    thoughts=agent_result.get("thoughts", []),
+                    tool_calls=agent_result.get("tool_calls", []),
+                    tool_results=agent_result.get("tool_results", []),
+                    iterations=agent_result.get("iterations", 0),
+                    token_usage=tu_info,
+                ))
+
+    multi_agent_info = MultiAgentInfo(
+        domain_decision=domain_decision_info or DomainDecisionInfo(primary="unknown"),
+        agent_results=agent_results_list,
+        agents_invoked=len(agent_results_list),
+    )
+
+    # Orchestrator 토큰 사용량
+    token_usage_info = None
+    if hasattr(result, 'token_usage') and result.token_usage:
+        tu = result.token_usage
+        if isinstance(tu, dict):
+            token_usage_info = TokenUsageInfo(**tu)
+        else:
+            token_usage_info = TokenUsageInfo(
+                total_tokens=tu.total_tokens,
+                prompt_tokens=tu.prompt_tokens,
+                completion_tokens=tu.completion_tokens,
+                total_cost=tu.total_cost,
+            )
+
+    log_event = LogEvent(
+        timestamp=datetime.utcnow(),
+        request_id=request_id,
+        event_type="multi_agent_response",
+        http=HttpInfo(
+            method=request.method,
+            path=str(request.url.path),
+            status_code=200,
+            duration_ms=duration_ms,
+        ),
+        request=RequestInfo(
+            query=query,
+            session_id=session_id,
+            stream=stream,
+        ),
+        response=ResponseInfo(
+            answer=result.answer if hasattr(result, 'answer') else "",
+            route=domain_decision_info.primary if domain_decision_info else None,
+            route_reasoning=domain_decision_info.reasoning if domain_decision_info else None,
+        ),
+        multi_agent=multi_agent_info,
+        token_usage=token_usage_info,
+        client=ClientInfo(
+            ip=request.client.host if request.client else "unknown",
+            user_agent=request.headers.get("user-agent", ""),
+        ),
     )
 
     await log_to_elasticsearch(log_event)

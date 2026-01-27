@@ -94,6 +94,58 @@ class TokenUsageInfo(BaseModel):
     total_cost: float = 0.0
 
 
+class DomainDecisionInfo(BaseModel):
+    """
+    도메인 라우팅 결정 정보
+
+    Attributes:
+        primary: 주요 도메인
+        secondary: 보조 도메인 목록
+        confidence: 라우팅 신뢰도
+        reasoning: 라우팅 결정 이유
+        cross_domain: 크로스 도메인 여부
+    """
+    primary: str
+    secondary: List[str] = []
+    confidence: float = 0.0
+    reasoning: str = ""
+    cross_domain: bool = False
+
+
+class DomainAgentInfo(BaseModel):
+    """
+    도메인 에이전트 실행 정보
+
+    Attributes:
+        domain: 도메인 이름
+        thoughts: 추론 과정
+        tool_calls: 호출된 도구 목록
+        tool_results: 도구 실행 결과
+        iterations: 반복 횟수
+        token_usage: 도메인 에이전트 토큰 사용량
+    """
+    domain: str
+    thoughts: List[str] = []
+    tool_calls: List[Dict[str, Any]] = []
+    tool_results: List[Dict[str, Any]] = []
+    iterations: int = 0
+    token_usage: Optional["TokenUsageInfo"] = None
+
+
+class MultiAgentInfo(BaseModel):
+    """
+    멀티 에이전트 실행 정보
+
+    Attributes:
+        domain_decision: 도메인 라우팅 결정
+        agent_results: 도메인별 에이전트 실행 결과
+        agents_invoked: 실행된 에이전트 수
+    """
+    domain_decision: DomainDecisionInfo
+    agent_results: List[DomainAgentInfo] = []
+    agents_invoked: int = 0
+
+
 class ClientInfo(BaseModel):
     """
     클라이언트 정보
@@ -131,6 +183,7 @@ class LogEvent(BaseModel):
     request: Optional[RequestInfo] = None
     response: Optional[ResponseInfo] = None
     agent: Optional[AgentInfo] = None
+    multi_agent: Optional[MultiAgentInfo] = None
     token_usage: Optional[TokenUsageInfo] = None
     client: ClientInfo
     error: Optional[str] = None

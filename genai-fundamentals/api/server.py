@@ -38,7 +38,7 @@ from .multi_agents import get_registry, DomainType
 from .multi_agents.orchestrator import OrchestratorService, get_orchestrator
 
 # Elasticsearch 로깅 모듈 임포트
-from .logging import ElasticsearchLoggingMiddleware, log_agent_response, ES_ENABLED
+from .logging import ElasticsearchLoggingMiddleware, log_agent_response, log_multi_agent_response, ES_ENABLED
 
 
 # =============================================================================
@@ -433,6 +433,10 @@ async def multi_agent_query(request: MultiAgentQueryRequest, req: Request):
     Raises:
         HTTPException: 처리 중 오류 발생 시 500 에러
     """
+    # Request ID 가져오기 (미들웨어에서 설정)
+    request_id = getattr(req.state, "request_id", "unknown")
+    start_time = time.time()
+
     try:
         if request.stream:
             # 스트리밍 응답: Server-Sent Events (SSE)
@@ -453,6 +457,21 @@ async def multi_agent_query(request: MultiAgentQueryRequest, req: Request):
                 preferred_domain=request.preferred_domain,
                 allow_cross_domain=request.allow_cross_domain
             )
+
+            # 처리 시간 계산
+            duration_ms = (time.time() - start_time) * 1000
+
+            # Elasticsearch에 멀티 에이전트 응답 로깅
+            if ES_ENABLED:
+                await log_multi_agent_response(
+                    request_id=request_id,
+                    request=req,
+                    query=request.query,
+                    session_id=request.session_id,
+                    stream=request.stream,
+                    result=result,
+                    duration_ms=duration_ms
+                )
 
             token_usage = None
             if result.token_usage:

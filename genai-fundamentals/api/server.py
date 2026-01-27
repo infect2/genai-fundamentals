@@ -118,6 +118,15 @@ def _initialize_multi_agent_system():
     except (ImportError, Exception):
         pass
 
+    # Memory Agent 등록
+    try:
+        from .multi_agents.memory import MemoryAgent
+        memory_agent = MemoryAgent(graphrag_service=service)
+        registry.register(memory_agent)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to register Memory agent: {e}")
+
 
 # =============================================================================
 # Request/Response 모델

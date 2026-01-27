@@ -51,6 +51,7 @@ class DomainType(Enum):
     TMS = "tms"      # Transportation Management System (운송 관리)
     FMS = "fms"      # Fleet Management System (차량 관리)
     TAP = "tap"      # TAP! Service (사용자 호출 서비스)
+    MEMORY = "memory"  # Memory (사용자 정보 저장/조회)
     UNKNOWN = "unknown"
 
     @classmethod

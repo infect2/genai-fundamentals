@@ -125,7 +125,7 @@ TOOLS = [
                 },
                 "preferred_domain": {
                     "type": "string",
-                    "enum": ["auto", "wms", "tms", "fms", "tap"],
+                    "enum": ["auto", "wms", "tms", "fms", "tap", "memory"],
                     "description": "선호 도메인 (auto=자동 라우팅)",
                     "default": "auto"
                 },

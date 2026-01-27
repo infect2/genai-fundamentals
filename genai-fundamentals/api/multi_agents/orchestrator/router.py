@@ -57,6 +57,11 @@ class DomainRouter:
             "호출", "예약", "ETA", "도착 예정", "결제", "피드백",
             "내 택배", "내 배송", "언제 와", "call", "booking", "payment",
         ],
+        DomainType.MEMORY: [
+            "기억", "저장", "기억해", "기억해줘", "저장해", "저장해줘",
+            "내 정보", "내 이메일", "내 차번호", "내 전화번호", "내 이름",
+            "내 주소", "remember", "store", "recall",
+        ],
     }
 
     def __init__(

@@ -1116,14 +1116,17 @@ ES_API_KEY=                   # API 키 (인증 필요 시)
 
 ### 로그 이벤트 유형
 
-| event_type | 설명 |
-|------------|------|
-| `request` | HTTP 요청 시작 시 |
-| `response` | HTTP 응답 완료 시 |
-| `agent_response` | Agent 쿼리 상세 응답 (thoughts, tool_calls 포함) |
-| `error` | 에러 발생 시 |
+| event_type | 엔드포인트 | 설명 |
+|------------|-----------|------|
+| `request` | 전체 | HTTP 요청 시작 시 |
+| `response` | 전체 | HTTP 응답 완료 시 |
+| `agent_response` | `/agent/query` (v1) | 단일 Agent 상세 응답 (thoughts, tool_calls 포함) |
+| `multi_agent_response` | `/v2/query` (v2) | 멀티 에이전트 상세 응답 (domain_decision, agent_results 포함) |
+| `error` | 전체 | 에러 발생 시 |
 
 ### 로그 스키마
+
+**v1 Agent 응답 (`agent_response`):**
 
 ```json
 {
@@ -1154,6 +1157,67 @@ ES_API_KEY=                   # API 키 (인증 필요 시)
     "prompt_tokens": 1200,
     "completion_tokens": 300,
     "total_cost": 0.0075
+  },
+  "client": {
+    "ip": "127.0.0.1",
+    "user_agent": "curl/7.79.1"
+  }
+}
+```
+
+**v2 멀티 에이전트 응답 (`multi_agent_response`):**
+
+```json
+{
+  "timestamp": "2024-01-25T12:00:00.000Z",
+  "request_id": "def67890",
+  "event_type": "multi_agent_response",
+  "http": {
+    "method": "POST",
+    "path": "/v2/query",
+    "status_code": 200,
+    "duration_ms": 3200.0
+  },
+  "request": {
+    "query": "배송 현황 알려줘",
+    "session_id": "user123",
+    "stream": false
+  },
+  "response": {
+    "answer": "현재 운송 중인 배송이 5건 있습니다...",
+    "route": "tms",
+    "route_reasoning": "배송 현황 조회 요청으로 TMS 도메인이 적합합니다."
+  },
+  "multi_agent": {
+    "domain_decision": {
+      "primary": "tms",
+      "secondary": [],
+      "confidence": 0.95,
+      "reasoning": "배송 현황 조회 요청으로 TMS 도메인이 적합합니다.",
+      "cross_domain": false
+    },
+    "agent_results": [
+      {
+        "domain": "tms",
+        "thoughts": ["배송 현황을 조회합니다..."],
+        "tool_calls": [{"name": "tms_shipment_status", "args": {...}}],
+        "tool_results": [...],
+        "iterations": 2,
+        "token_usage": {
+          "total_tokens": 6909,
+          "prompt_tokens": 6144,
+          "completion_tokens": 765,
+          "total_cost": 0.01725
+        }
+      }
+    ],
+    "agents_invoked": 1
+  },
+  "token_usage": {
+    "total_tokens": 732,
+    "prompt_tokens": 674,
+    "completion_tokens": 58,
+    "total_cost": 0.0001359
   },
   "client": {
     "ip": "127.0.0.1",
@@ -1198,6 +1262,30 @@ GET graphrag-logs-*/_search
 {
   "query": {
     "range": { "http.duration_ms": { "gte": 5000 } }
+  }
+}
+
+// 멀티 에이전트 응답만 조회
+GET graphrag-logs-*/_search
+{
+  "query": {
+    "term": { "event_type": "multi_agent_response" }
+  }
+}
+
+// 특정 도메인으로 라우팅된 쿼리
+GET graphrag-logs-*/_search
+{
+  "query": {
+    "term": { "multi_agent.domain_decision.primary": "tms" }
+  }
+}
+
+// 크로스 도메인 쿼리
+GET graphrag-logs-*/_search
+{
+  "query": {
+    "term": { "multi_agent.domain_decision.cross_domain": true }
   }
 }
 ```

@@ -405,11 +405,13 @@ MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 지식 그래�
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `agent_query` | ReAct Agent로 자연어 쿼리 처리 (multi-step reasoning) | `query` (필수), `session_id` |
+| `agent_query` | ReAct Agent로 자연어 쿼리 처리 (v1 단일 에이전트) | `query` (필수), `session_id` |
+| `multi_agent_query` | 멀티 에이전트 시스템으로 물류 도메인 쿼리 처리 (v2) | `query` (필수), `session_id`, `preferred_domain`, `allow_cross_domain` |
+| `list_agents` | 등록된 도메인 에이전트 목록 조회 | - |
 | `reset_session` | 세션 컨텍스트 초기화 | `session_id` (필수) |
 | `list_sessions` | 활성 세션 목록 조회 | - |
 
-### Agent Query Response Format
+### Agent Query Response Format (v1)
 ```json
 {
   "answer": "The entities connected to X are...",
@@ -426,13 +428,52 @@ MCP (Model Context Protocol) 서버는 MCP 프로토콜을 통해 지식 그래�
 }
 ```
 
+### Multi-Agent Query Response Format (v2)
+```json
+{
+  "answer": "현재 운송 중인 배송이 5건 있습니다...",
+  "domain_decision": {
+    "primary": "tms",
+    "secondary": [],
+    "confidence": 0.95,
+    "reasoning": "배송 현황 조회 요청으로 TMS 도메인이 적합합니다.",
+    "cross_domain": false
+  },
+  "agent_results": {
+    "tms": {
+      "answer": "...",
+      "tool_calls": [...],
+      "tool_results": [...],
+      "iterations": 2
+    }
+  },
+  "token_usage": {
+    "total_tokens": 1500,
+    "prompt_tokens": 1200,
+    "completion_tokens": 300,
+    "total_cost": 0.0075
+  }
+}
+```
+
 ### Usage Example (Python)
 ```python
-# MCP 클라이언트에서 tool 호출
+# v1: 단일 에이전트 쿼리
 result = await client.call_tool("agent_query", {
     "query": "What entities are connected to X?",
     "session_id": "user123"
 })
+
+# v2: 멀티 에이전트 쿼리
+result = await client.call_tool("multi_agent_query", {
+    "query": "배송 현황 알려줘",
+    "session_id": "user123",
+    "preferred_domain": "auto",
+    "allow_cross_domain": True
+})
+
+# 등록된 에이전트 목록 조회
+result = await client.call_tool("list_agents", {})
 ```
 
 ### Architecture Comparison

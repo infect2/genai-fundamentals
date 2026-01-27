@@ -44,7 +44,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
 
             where_clauses = []
             if vehicle_plate:
-                where_clauses.append(f"v.license_plate CONTAINS '{vehicle_plate}'")
+                where_clauses.append(f"v.licensePlate CONTAINS '{vehicle_plate}'")
             if status_filter:
                 where_clauses.append(f"v.status = '{status_filter}'")
 
@@ -52,9 +52,9 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
                 cypher += "\nWHERE " + " AND ".join(where_clauses)
 
             cypher += f"""
-            RETURN v.license_plate as plate, v.vehicle_type as type,
+            RETURN v.licensePlate as plate, v.vehicleType as type,
                    v.status as status, v.mileage as mileage, d.name as driver
-            ORDER BY v.license_plate
+            ORDER BY v.licensePlate
             LIMIT {limit}
             """
 
@@ -95,17 +95,17 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
 
             where_clauses = []
             if vehicle_plate:
-                where_clauses.append(f"v.license_plate CONTAINS '{vehicle_plate}'")
+                where_clauses.append(f"v.licensePlate CONTAINS '{vehicle_plate}'")
             if not include_completed:
-                where_clauses.append("m.next_due_date >= date()")
+                where_clauses.append("m.nextDueDate >= date()")
 
             if where_clauses:
                 cypher += "\nWHERE " + " AND ".join(where_clauses)
 
             cypher += f"""
-            RETURN v.license_plate as plate, m.maintenance_type as type,
-                   m.next_due_date as due_date, m.date as last_date, m.description as desc
-            ORDER BY m.next_due_date
+            RETURN v.licensePlate as plate, m.maintenanceType as type,
+                   m.nextDueDate as due_date, m.date as last_date, m.description as desc
+            ORDER BY m.nextDueDate
             LIMIT {limit}
             """
 
@@ -150,7 +150,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
 
             cypher += f"""
             RETURN d.name as name, d.phone as phone, d.rating as rating,
-                   d.license_expiry as license_expiry, collect(v.license_plate) as vehicles
+                   d.licenseExpiry as license_expiry, collect(v.licensePlate) as vehicles
             LIMIT {limit}
             """
 
@@ -194,7 +194,7 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
 
             where_clauses = []
             if vehicle_plate:
-                where_clauses.append(f"v.license_plate CONTAINS '{vehicle_plate}'")
+                where_clauses.append(f"v.licensePlate CONTAINS '{vehicle_plate}'")
             if warning_only:
                 where_clauses.append("c.status IN ['warning', 'replace_soon', 'overdue']")
 
@@ -202,8 +202,8 @@ def create_fms_tools(graphrag_service) -> List[BaseTool]:
                 cypher += "\nWHERE " + " AND ".join(where_clauses)
 
             cypher += f"""
-            RETURN v.license_plate as plate, c.name as consumable,
-                   c.status as status, c.current_life_km as current_km, c.expected_life_km as expected_km
+            RETURN v.licensePlate as plate, c.name as consumable,
+                   c.status as status, c.currentLifeKm as current_km, c.expectedLifeKm as expected_km
             ORDER BY c.status DESC
             LIMIT {limit}
             """

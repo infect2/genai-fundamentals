@@ -48,9 +48,9 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
 
             where_clauses = []
             if customer_id:
-                where_clauses.append(f"c.customer_id = '{customer_id}'")
+                where_clauses.append(f"c.customerId = '{customer_id}'")
             if request_id:
-                where_clauses.append(f"cr.request_id = '{request_id}'")
+                where_clauses.append(f"cr.requestId = '{request_id}'")
             if status_filter:
                 where_clauses.append(f"cr.status = '{status_filter}'")
             else:
@@ -60,10 +60,10 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
                 cypher += "\nWHERE " + " AND ".join(where_clauses)
 
             cypher += f"""
-            RETURN cr.request_id as request_id, cr.status as status, cr.eta as eta,
-                   c.name as customer, v.license_plate as vehicle, d.name as driver,
+            RETURN cr.requestId as request_id, cr.status as status, cr.eta as eta,
+                   c.name as customer, v.licensePlate as vehicle, d.name as driver,
                    pickup.address as pickup, dropoff.address as dropoff
-            ORDER BY cr.request_time DESC
+            ORDER BY cr.requestTime DESC
             LIMIT {limit}
             """
 
@@ -103,10 +103,10 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
         """
         try:
             cypher = f"""
-            MATCH (cr:CallRequest {{request_id: '{request_id}'}})-[:FULFILLED_BY]->(v:Vehicle)
+            MATCH (cr:CallRequest {{requestId: '{request_id}'}})-[:FULFILLED_BY]->(v:Vehicle)
             OPTIONAL MATCH (cr)-[:DRIVEN_BY]->(d:Driver)
             RETURN cr.status as status, cr.eta as eta,
-                   v.license_plate as vehicle, v.current_location as location,
+                   v.licensePlate as vehicle, v.currentLocation as location,
                    d.name as driver, d.phone as driver_phone
             """
 
@@ -157,7 +157,7 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
 
             where_clauses = []
             if customer_id:
-                where_clauses.append(f"c.customer_id = '{customer_id}'")
+                where_clauses.append(f"c.customerId = '{customer_id}'")
             if status_filter:
                 where_clauses.append(f"b.status = '{status_filter}'")
 
@@ -165,10 +165,10 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
                 cypher += "\nWHERE " + " AND ".join(where_clauses)
 
             cypher += f"""
-            RETURN b.booking_id as booking_id, b.status as status,
-                   b.scheduled_time as scheduled, c.name as customer,
+            RETURN b.bookingId as booking_id, b.status as status,
+                   b.scheduledTime as scheduled, c.name as customer,
                    pickup.address as pickup, dropoff.address as dropoff
-            ORDER BY b.scheduled_time
+            ORDER BY b.scheduledTime
             LIMIT {limit}
             """
 
@@ -204,10 +204,10 @@ def create_tap_tools(graphrag_service) -> List[BaseTool]:
         """
         try:
             cypher = f"""
-            MATCH (c:Customer {{customer_id: '{customer_id}'}})<-[:REQUESTED_BY]-(cr:CallRequest)-[:PAID_WITH]->(p:Payment)
-            RETURN cr.request_id as request_id, p.amount as amount,
-                   p.method as method, p.status as status, p.paid_at as paid_at
-            ORDER BY p.paid_at DESC
+            MATCH (c:Customer {{customerId: '{customer_id}'}})<-[:REQUESTED_BY]-(cr:CallRequest)-[:PAID_WITH]->(p:Payment)
+            RETURN cr.requestId as request_id, p.amount as amount,
+                   p.method as method, p.status as status, p.paidAt as paid_at
+            ORDER BY p.paidAt DESC
             LIMIT {limit}
             """
 

@@ -61,7 +61,7 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
             RETURN w.name as warehouse,
                    i.sku as sku,
                    sum(i.quantity) as total_qty,
-                   collect(DISTINCT b.bin_id) as locations
+                   collect(DISTINCT b.binId) as locations
             LIMIT {limit}
             """
 
@@ -96,7 +96,7 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
         try:
             cypher = f"""
             MATCH (i:InventoryItem {{sku: '{sku}'}})-[:STORED_AT]->(b:Bin)-[:LOCATED_IN]->(z:Zone)-[:BELONGS_TO]->(w:Warehouse)
-            RETURN w.name as warehouse, z.zone_type as zone, b.bin_id as bin, i.quantity as qty
+            RETURN w.name as warehouse, z.zoneType as zone, b.binId as bin, i.quantity as qty
             """
 
             result = graphrag_service.execute_cypher(cypher)
@@ -180,9 +180,9 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
                 cypher += "\nWHERE io.status IN ['scheduled', 'arrived', 'receiving']"
 
             cypher += f"""
-            RETURN io.inbound_id as id, io.status as status,
-                   io.expected_date as expected, w.name as warehouse
-            ORDER BY io.expected_date
+            RETURN io.inboundId as id, io.status as status,
+                   io.expectedDate as expected, w.name as warehouse
+            ORDER BY io.expectedDate
             LIMIT {limit}
             """
 
@@ -224,9 +224,9 @@ def create_wms_tools(graphrag_service) -> List[BaseTool]:
                 cypher += "\nWHERE oo.status IN ['pending', 'picking', 'packed']"
 
             cypher += f"""
-            RETURN oo.outbound_id as id, oo.status as status,
-                   oo.expected_date as expected, w.name as warehouse
-            ORDER BY oo.expected_date
+            RETURN oo.outboundId as id, oo.status as status,
+                   oo.expectedDate as expected, w.name as warehouse
+            ORDER BY oo.expectedDate
             LIMIT {limit}
             """
 
